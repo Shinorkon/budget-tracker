@@ -1,0 +1,12 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    prefer_const_constructors: false
+    prefer_const_literals_to_create_immutables: false
+    use_key_in_widget_constructors: false
+    unnecessary_const: false
+
+analyzer:
+  errors:
+    include_file_not_found: ignore
