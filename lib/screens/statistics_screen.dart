@@ -251,6 +251,85 @@ class StatisticsScreen extends StatelessWidget {
               ),
             ),
 
+            // ─── Spending by category ─────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                child: Text(
+                  'Spending by Category',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            ),
+
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: AppDecorations.glassCard,
+                  child: budget.expensesByCategory.isEmpty
+                      ? SizedBox(
+                          height: 180,
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.pie_chart_outline_rounded,
+                                  color: AppColors.textMuted,
+                                  size: 48,
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'No expenses this month',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: AppColors.textMuted,
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Tap + to add your first expense',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : SizedBox(
+                          height: 200,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: PieChart(
+                                  PieChartData(
+                                    sections: _buildPieSections(budget),
+                                    sectionsSpace: 3,
+                                    centerSpaceRadius: 36,
+                                    startDegreeOffset: -90,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: _buildLegend(budget),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                ),
+              ),
+            ),
+
             // ─── Top spending categories ──────────────────────
             SliverToBoxAdapter(
               child: Padding(
@@ -381,6 +460,57 @@ class StatisticsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  List<PieChartSectionData> _buildPieSections(BudgetProvider budget) {
+    final expByCategory = budget.expensesByCategory;
+    final total = expByCategory.values.fold(0.0, (sum, v) => sum + v);
+    return expByCategory.entries.map((entry) {
+      final cat = budget.getCategoryById(entry.key);
+      final percentage = (entry.value / total * 100);
+      return PieChartSectionData(
+        value: entry.value,
+        color: cat?.color ?? AppColors.textMuted,
+        title: '${percentage.toStringAsFixed(0)}%',
+        radius: 50,
+        titleStyle: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
+      );
+    }).toList();
+  }
+
+  List<Widget> _buildLegend(BudgetProvider budget) {
+    final expByCategory = budget.expensesByCategory;
+    return expByCategory.entries.take(6).map((entry) {
+      final cat = budget.getCategoryById(entry.key);
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: cat?.color ?? AppColors.textMuted,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                cat?.name ?? 'Unknown',
+                style: const TextStyle(
+                    color: AppColors.textSecondary, fontSize: 12),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      );
+    }).toList();
   }
 }
 

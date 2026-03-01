@@ -11,7 +11,6 @@ A beautifully designed personal budget tracker built with **Flutter**. Track you
 ### 🏠 Dashboard (Home)
 - **Balance overview** — See your monthly balance at a glance with animated counters
 - **Income & Expense tiles** — Color-coded, tappable tiles that open the Add Transaction sheet
-- **Spending by Category** — Interactive pie chart with color-coded legend
 - **Category cards** — Grid view with spending amounts, budget progress bars, and quick-add via tap
 - **Recent transactions** — Last 5 transactions with tap-to-edit functionality
 - **Dynamic greeting** — Time-based greeting (Good morning/afternoon/evening)
@@ -42,7 +41,11 @@ A beautifully designed personal budget tracker built with **Flutter**. Track you
 ### 📈 Statistics
 - **All-time overview** — Total income, expenses, and net balance cards
 - **6-month bar chart** — Side-by-side income/expense comparison with touch tooltips
+- **Spending by Category** — Interactive pie chart with color-coded legend
 - **Top spending categories** — Ranked list with category icons, amounts, percentages, and progress bars
+
+### 🎯 Branding
+- **Custom app icon** — Updated launcher icon for Android and iOS
 
 ### 🏷️ Category Management
 - **Default categories** — 6 pre-built categories (Rent, Food, Transport, Shopping, Bills, Entertainment)
