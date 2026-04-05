@@ -42,8 +42,6 @@ class BudgetProvider extends ChangeNotifier {
   }
 
   Future<void> _init() async {
-    await Hive.initFlutter();
-
     if (!Hive.isAdapterRegistered(0)) {
       Hive.registerAdapter(CategoryAdapter());
     }
@@ -220,6 +218,44 @@ class BudgetProvider extends ChangeNotifier {
               t.date.month == month.month)
           .fold(0.0, (sum, t) => sum + t.amount);
       result.add(MapEntry(month, total));
+    }
+    return result;
+  }
+
+  // ─── Date-based queries (for calendar) ─────────────────────
+  List<Transaction> transactionsForDate(DateTime date) {
+    return _transactions
+        .where((t) =>
+            t.date.year == date.year &&
+            t.date.month == date.month &&
+            t.date.day == date.day)
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+  }
+
+  Map<DateTime, List<Transaction>> get transactionsByDay {
+    final map = <DateTime, List<Transaction>>{};
+    for (final t in _transactions) {
+      final key = DateTime(t.date.year, t.date.month, t.date.day);
+      map.putIfAbsent(key, () => []).add(t);
+    }
+    return map;
+  }
+
+  // ─── Daily expenses for current month (for charts) ────────
+  List<MapEntry<int, double>> get dailyExpensesForMonth {
+    final daysInMonth =
+        DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0).day;
+    final result = <MapEntry<int, double>>[];
+    for (int d = 1; d <= daysInMonth; d++) {
+      final total = _transactions
+          .where((t) =>
+              t.type == TransactionType.expense &&
+              t.date.year == _selectedMonth.year &&
+              t.date.month == _selectedMonth.month &&
+              t.date.day == d)
+          .fold(0.0, (sum, t) => sum + t.amount);
+      result.add(MapEntry(d, total));
     }
     return result;
   }

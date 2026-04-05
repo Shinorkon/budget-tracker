@@ -2,14 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../models/budget_provider.dart';
+import '../models/receipt_provider.dart';
+import '../services/api_service.dart';
+import '../services/sync_service.dart';
+import 'auth_screen.dart';
 import 'categories_screen.dart';
+import 'receipts_history_screen.dart';
+import 'price_search_screen.dart';
+import 'stores_screen.dart';
+import 'items_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final ApiService _api = ApiService();
+  bool _isSyncing = false;
 
   @override
   Widget build(BuildContext context) {
     final budget = Provider.of<BudgetProvider>(context);
+    final receiptProvider = Provider.of<ReceiptProvider>(context);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -63,6 +80,145 @@ class SettingsScreen extends StatelessWidget {
                             ),
                           );
                         },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // ─── Account & Sync section ──────────────────────
+            SliverToBoxAdapter(
+              child: _SectionHeader(title: 'Account & Sync'),
+            ),
+
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: FutureBuilder<bool>(
+                  future: _api.isLoggedIn,
+                  builder: (context, snapshot) {
+                    final isLoggedIn = snapshot.data ?? false;
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                            color: AppColors.border.withValues(alpha: 0.3)),
+                      ),
+                      child: Column(
+                        children: [
+                          _SettingsTile(
+                            icon: isLoggedIn
+                                ? Icons.verified_user_rounded
+                                : Icons.person_outline_rounded,
+                            iconColor: isLoggedIn
+                                ? AppColors.income
+                                : AppColors.textSecondary,
+                            title: isLoggedIn ? 'Account Connected' : 'No Account',
+                            subtitle:
+                                isLoggedIn ? 'Signed in and ready to sync' : 'Sign in to enable cloud sync',
+                            onTap: () => _openAuth(context),
+                          ),
+                          _divider(),
+                          _SettingsTile(
+                            icon: _isSyncing
+                                ? Icons.sync
+                                : Icons.sync_rounded,
+                            iconColor: AppColors.primary,
+                            title: _isSyncing ? 'Syncing...' : 'Sync Now',
+                            subtitle: 'Push local data to cloud and fetch updates',
+                            onTap: _isSyncing
+                                ? () {}
+                                : () => _syncNow(context, budget, receiptProvider),
+                          ),
+                          _divider(),
+                          _SettingsTile(
+                            icon: isLoggedIn
+                                ? Icons.logout_rounded
+                                : Icons.login_rounded,
+                            iconColor: isLoggedIn
+                                ? AppColors.warning
+                                : AppColors.accent,
+                            title: isLoggedIn ? 'Sign Out' : 'Sign In / Sign Up',
+                            subtitle: isLoggedIn
+                                ? 'Disconnect this device from account'
+                                : 'Create or connect your Budgy account',
+                            onTap: () => isLoggedIn
+                                ? _logout(context)
+                                : _openAuth(context),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // ─── Intelligence section ──────────────────────────
+            SliverToBoxAdapter(
+              child: _SectionHeader(title: 'Intelligence'),
+            ),
+
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                        color: AppColors.border.withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    children: [
+                      _SettingsTile(
+                        icon: Icons.receipt_long_rounded,
+                        iconColor: AppColors.primary,
+                        title: 'Receipts History',
+                        subtitle: 'View all scanned receipts',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const ReceiptsHistoryScreen(),
+                          ),
+                        ),
+                      ),
+                      _divider(),
+                      _SettingsTile(
+                        icon: Icons.price_check_rounded,
+                        iconColor: AppColors.accent,
+                        title: 'Price Check',
+                        subtitle: 'Compare item prices across stores',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const PriceSearchScreen(),
+                          ),
+                        ),
+                      ),
+                      _divider(),
+                      _SettingsTile(
+                        icon: Icons.storefront_rounded,
+                        iconColor: AppColors.warning,
+                        title: 'Stores',
+                        subtitle: 'Shops and supermarkets visited',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const StoresScreen(),
+                          ),
+                        ),
+                      ),
+                      _divider(),
+                      _SettingsTile(
+                        icon: Icons.inventory_2_rounded,
+                        iconColor: AppColors.accentLight,
+                        title: 'Items',
+                        subtitle: 'Everything you\'ve bought',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const ItemsScreen(),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -150,6 +306,70 @@ class SettingsScreen extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Divider(color: AppColors.border.withValues(alpha: 0.3), height: 1),
+    );
+  }
+
+  Future<void> _openAuth(BuildContext context) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AuthScreen(
+          onAuthenticated: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _syncNow(
+    BuildContext context,
+    BudgetProvider budget,
+    ReceiptProvider receiptProvider,
+  ) async {
+    final isLoggedIn = await _api.isLoggedIn;
+    if (!isLoggedIn) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Sign in first to use cloud sync'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSyncing = true);
+    final success = await SyncService(
+      api: _api,
+      budgetProvider: budget,
+      receiptProvider: receiptProvider,
+    ).sync();
+    if (!mounted) return;
+
+    setState(() => _isSyncing = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(success ? 'Sync complete' : 'Sync failed. Check connection or login status.'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        backgroundColor: success ? AppColors.income : AppColors.expense,
+      ),
+    );
+  }
+
+  Future<void> _logout(BuildContext context) async {
+    await _api.logout();
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Signed out successfully'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
     );
   }
 

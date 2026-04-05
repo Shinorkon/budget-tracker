@@ -1,6 +1,6 @@
 {
-    "name": "budget_app_flutter",
-    "short_name": "budget_app_flutter",
+    "name": "Budgy",
+    "short_name": "Budgy",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

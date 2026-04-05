@@ -330,6 +330,57 @@ class StatisticsScreen extends StatelessWidget {
               ),
             ),
 
+            // ─── Daily spending trend ─────────────────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                child: Text(
+                  'Daily Spending — ${budget.selectedMonthLabel}',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            ),
+
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  height: 220,
+                  padding: const EdgeInsets.all(20),
+                  decoration: AppDecorations.glassCard,
+                  child: _DailyTrendChart(budget: budget),
+                ),
+              ),
+            ),
+
+            // ─── Budget vs Actual ────────────────────────────────
+            if (budget.categories
+                .any((c) => c.budgetLimit > 0)) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                  child: Text(
+                    'Budget vs Actual',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: AppDecorations.glassCard,
+                    child: _BudgetVsActual(budget: budget),
+                  ),
+                ),
+              ),
+            ],
+
             // ─── Top spending categories ──────────────────────
             SliverToBoxAdapter(
               child: Padding(
@@ -614,6 +665,231 @@ class _LegendDot extends StatelessWidget {
           style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
         ),
       ],
+    );
+  }
+}
+
+// ─── Daily spending trend line chart ─────────────────────────
+
+class _DailyTrendChart extends StatelessWidget {
+  final BudgetProvider budget;
+
+  const _DailyTrendChart({required this.budget});
+
+  @override
+  Widget build(BuildContext context) {
+    final dailyData = budget.dailyExpensesForMonth;
+    final maxY = dailyData.fold(0.0, (m, e) => e.value > m ? e.value : m);
+
+    if (maxY == 0) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.show_chart_rounded,
+                color: AppColors.textMuted, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              'No expenses this month',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: AppColors.textMuted),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final spots = dailyData
+        .map((e) => FlSpot(e.key.toDouble(), e.value))
+        .toList();
+
+    return LineChart(
+      LineChartData(
+        maxY: maxY * 1.2,
+        minY: 0,
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            curveSmoothness: 0.3,
+            color: AppColors.expense,
+            barWidth: 2.5,
+            isStrokeCapRound: true,
+            dotData: const FlDotData(show: false),
+            belowBarData: BarAreaData(
+              show: true,
+              color: AppColors.expense.withValues(alpha: 0.08),
+            ),
+          ),
+        ],
+        titlesData: FlTitlesData(
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 46,
+              getTitlesWidget: (value, meta) {
+                return Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Text(
+                    formatCurrencyShort(value, ''),
+                    style: const TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 10,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              interval: (dailyData.length / 6).ceilToDouble().clamp(1, 31),
+              getTitlesWidget: (value, meta) {
+                final day = value.toInt();
+                if (day < 1 || day > dailyData.length) {
+                  return const SizedBox.shrink();
+                }
+                return Text(
+                  '$day',
+                  style: const TextStyle(
+                    color: AppColors.textMuted,
+                    fontSize: 10,
+                  ),
+                );
+              },
+            ),
+          ),
+          topTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles:
+              const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        ),
+        gridData: FlGridData(
+          show: true,
+          drawVerticalLine: false,
+          horizontalInterval: maxY > 0 ? maxY / 3 : 1,
+          getDrawingHorizontalLine: (value) => FlLine(
+            color: AppColors.border.withValues(alpha: 0.3),
+            strokeWidth: 1,
+            dashArray: [5, 5],
+          ),
+        ),
+        borderData: FlBorderData(show: false),
+        lineTouchData: LineTouchData(
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipColor: (_) => AppColors.surfaceLight,
+            tooltipRoundedRadius: 10,
+            getTooltipItems: (touchedSpots) {
+              return touchedSpots.map((spot) {
+                return LineTooltipItem(
+                  'Day ${spot.x.toInt()}\n${formatCurrency(spot.y, budget.currency)}',
+                  const TextStyle(
+                    color: AppColors.expense,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                );
+              }).toList();
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Budget vs Actual per category ───────────────────────────
+
+class _BudgetVsActual extends StatelessWidget {
+  final BudgetProvider budget;
+
+  const _BudgetVsActual({required this.budget});
+
+  @override
+  Widget build(BuildContext context) {
+    final cats = budget.categories
+        .where((c) => c.budgetLimit > 0)
+        .toList();
+
+    return Column(
+      children: cats.map((cat) {
+        final spent = budget.expensesForCategory(cat.id);
+        final limit = cat.budgetLimit;
+        final ratio = limit > 0 ? (spent / limit).clamp(0.0, 1.5) : 0.0;
+        final isOver = spent > limit;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(cat.icon, color: cat.color, size: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      cat.name,
+                      style: const TextStyle(
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${formatCurrencyShort(spent, budget.currency)} / ${formatCurrencyShort(limit, budget.currency)}',
+                    style: TextStyle(
+                      color: isOver ? AppColors.expense : AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Stack(
+                children: [
+                  // Budget bar (full width = budget)
+                  Container(
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceHighlight,
+                      borderRadius: BorderRadius.circular(5),
+                    ),
+                  ),
+                  // Actual bar
+                  FractionallySizedBox(
+                    widthFactor: ratio.clamp(0.0, 1.0),
+                    child: Container(
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: isOver ? AppColors.expense : cat.color,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (isOver)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Over by ${formatCurrency(spent - limit, budget.currency)}',
+                    style: const TextStyle(
+                      color: AppColors.expense,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 }

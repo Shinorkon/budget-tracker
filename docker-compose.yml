@@ -1,0 +1,37 @@
+services:
+  db:
+    image: postgres:16
+    container_name: budgy_db
+    restart: always
+    environment:
+      POSTGRES_USER: budgy
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-budgy}
+      POSTGRES_DB: budgy
+    ports:
+      - "5432:5432"
+    volumes:
+      - budgy_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U budgy"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: budgy_api
+    environment:
+      DATABASE_URL: postgresql://budgy:${DB_PASSWORD:-budgy}@db:5432/budgy
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: "false"
+    restart: always
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  budgy_db_data:

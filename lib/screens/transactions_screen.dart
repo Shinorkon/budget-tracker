@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import '../models/budget_provider.dart';
 import '../models/budget_model.dart';
 import '../utils/formatters.dart';
+import 'calendar_screen.dart';
 
 class TransactionsScreen extends StatefulWidget {
   const TransactionsScreen({super.key});
@@ -84,6 +85,24 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                   const Spacer(),
+                  // Calendar view button
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                          builder: (_) => const CalendarScreen()),
+                    ),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(right: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceLight,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: const Icon(Icons.calendar_month_rounded,
+                          color: AppColors.primary, size: 20),
+                    ),
+                  ),
                   // Month indicator
                   GestureDetector(
                     onTap: () => budget.goToCurrentMonth(),

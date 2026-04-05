@@ -1,14 +1,19 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../theme/app_theme.dart';
 import '../models/budget_provider.dart';
 import '../models/budget_model.dart';
 import '../utils/formatters.dart';
+import '../widgets/speed_dial_fab.dart';
 import 'home_screen.dart';
 import 'transactions_screen.dart';
 import 'statistics_screen.dart';
 import 'settings_screen.dart';
+import 'scan_receipt_flow.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -17,10 +22,9 @@ class MainLayout extends StatefulWidget {
   State<MainLayout> createState() => _MainLayoutState();
 }
 
-class _MainLayoutState extends State<MainLayout> with TickerProviderStateMixin {
+class _MainLayoutState extends State<MainLayout> {
   int _currentIndex = 0;
   late final List<Widget> _screens;
-  late final AnimationController _fabController;
 
   @override
   void initState() {
@@ -32,17 +36,6 @@ class _MainLayoutState extends State<MainLayout> with TickerProviderStateMixin {
       StatisticsScreen(),
       SettingsScreen(),
     ];
-    _fabController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    _fabController.forward();
-  }
-
-  @override
-  void dispose() {
-    _fabController.dispose();
-    super.dispose();
   }
 
   void _onTabChanged(int index) {
@@ -60,34 +53,10 @@ class _MainLayoutState extends State<MainLayout> with TickerProviderStateMixin {
           child: _screens[_currentIndex],
         ),
       ),
-      floatingActionButton: ScaleTransition(
-        scale: CurvedAnimation(
-          parent: _fabController,
-          curve: Curves.elasticOut,
-        ),
-        child: Container(
-          height: 60,
-          width: 60,
-          decoration: BoxDecoration(
-            gradient: AppColors.primaryGradient,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.4),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(18),
-              onTap: () => _showAddTransactionSheet(context),
-              child:
-                  const Icon(Icons.add_rounded, color: Colors.white, size: 30),
-            ),
-          ),
+      floatingActionButton: SpeedDialFab(
+        onAddTransaction: () => _showAddTransactionSheet(context),
+        onScanReceipt: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const ScanReceiptFlow()),
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
@@ -191,8 +160,11 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   final _noteController = TextEditingController();
+  final _storeController = TextEditingController();
   String? _selectedCategoryId;
   DateTime _selectedDate = DateTime.now();
+  TimeOfDay _selectedTime = TimeOfDay.now();
+  String? _imagePath;
 
   @override
   void initState() {
@@ -211,6 +183,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
     _tabController.dispose();
     _amountController.dispose();
     _noteController.dispose();
+    _storeController.dispose();
     super.dispose();
   }
 
@@ -390,29 +363,128 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
                     ),
                     const SizedBox(height: 16),
 
-                    // Date
+                    // Store / Location
+                    TextFormField(
+                      controller: _storeController,
+                      decoration: const InputDecoration(
+                        hintText: 'Store / Location (optional)',
+                        prefixIcon: Icon(Icons.store_rounded,
+                            color: AppColors.textMuted),
+                      ),
+                      style: const TextStyle(color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Date & Time row
+                    Row(
+                      children: [
+                        // Date
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: _pickDate,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 14),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceLight,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.calendar_today_rounded,
+                                      color: AppColors.textMuted, size: 20),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(formatDate(_selectedDate),
+                                        style: const TextStyle(
+                                            color: AppColors.textPrimary,
+                                            fontSize: 14)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        // Time
+                        GestureDetector(
+                          onTap: _pickTime,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                            decoration: BoxDecoration(
+                              color: AppColors.surfaceLight,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.access_time_rounded,
+                                    color: AppColors.textMuted, size: 20),
+                                const SizedBox(width: 10),
+                                Text(_selectedTime.format(context),
+                                    style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 14)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Receipt / Image attachment
                     GestureDetector(
-                      onTap: _pickDate,
+                      onTap: _pickImage,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 14),
                         decoration: BoxDecoration(
                           color: AppColors.surfaceLight,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.border),
+                          border: Border.all(
+                            color: _imagePath != null
+                                ? AppColors.primary
+                                : AppColors.border,
+                          ),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.calendar_today_rounded,
-                                color: AppColors.textMuted, size: 20),
+                            Icon(
+                              _imagePath != null
+                                  ? Icons.check_circle_rounded
+                                  : Icons.camera_alt_rounded,
+                              color: _imagePath != null
+                                  ? AppColors.primary
+                                  : AppColors.textMuted,
+                              size: 20,
+                            ),
                             const SizedBox(width: 12),
-                            Text(formatDate(_selectedDate),
-                                style: const TextStyle(
-                                    color: AppColors.textPrimary,
-                                    fontSize: 15)),
-                            const Spacer(),
-                            const Icon(Icons.chevron_right_rounded,
-                                color: AppColors.textMuted),
+                            Expanded(
+                              child: Text(
+                                _imagePath != null
+                                    ? 'Receipt attached'
+                                    : 'Attach receipt / image (optional)',
+                                style: TextStyle(
+                                  color: _imagePath != null
+                                      ? AppColors.textPrimary
+                                      : AppColors.textMuted,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                            if (_imagePath != null)
+                              GestureDetector(
+                                onTap: () =>
+                                    setState(() => _imagePath = null),
+                                child: const Icon(Icons.close_rounded,
+                                    color: AppColors.textMuted, size: 18),
+                              )
+                            else
+                              const Icon(Icons.chevron_right_rounded,
+                                  color: AppColors.textMuted),
                           ],
                         ),
                       ),
@@ -474,6 +546,66 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedTime,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.primary,
+              surface: AppColors.surface,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) setState(() => _selectedTime = picked);
+  }
+
+  Future<void> _pickImage() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded,
+                  color: AppColors.primary),
+              title: const Text('Camera',
+                  style: TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded,
+                  color: AppColors.primary),
+              title: const Text('Gallery',
+                  style: TextStyle(color: AppColors.textPrimary)),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return;
+
+    final picker = ImagePicker();
+    final xFile = await picker.pickImage(source: source, imageQuality: 70);
+    if (xFile == null) return;
+
+    final appDir = await getApplicationDocumentsDirectory();
+    final fileName = 'txn_${const Uuid().v4()}.jpg';
+    final saved = await File(xFile.path).copy('${appDir.path}/$fileName');
+    setState(() => _imagePath = saved.path);
+  }
+
   void _submit(BudgetProvider budget) {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
@@ -493,13 +625,22 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
     }
 
     final amount = double.parse(_amountController.text);
+    final dateWithTime = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      _selectedTime.hour,
+      _selectedTime.minute,
+    );
     final transaction = Transaction(
       id: const Uuid().v4(),
       categoryId: isExpense ? _selectedCategoryId : null,
       amount: amount,
-      date: _selectedDate,
+      date: dateWithTime,
       note: _noteController.text.trim(),
       type: isExpense ? TransactionType.expense : TransactionType.income,
+      storeName: _storeController.text.trim(),
+      imagePath: _imagePath ?? '',
     );
 
     budget.addTransaction(transaction);

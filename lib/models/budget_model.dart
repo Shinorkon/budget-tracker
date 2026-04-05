@@ -72,6 +72,8 @@ class Transaction extends HiveObject {
   final DateTime date;
   final String note;
   final TransactionType type;
+  final String storeName;
+  final String imagePath;
 
   Transaction({
     required this.id,
@@ -80,7 +82,12 @@ class Transaction extends HiveObject {
     required this.date,
     this.note = '',
     required this.type,
+    this.storeName = '',
+    this.imagePath = '',
   });
+
+  String? get storeNameOrNull => storeName.isEmpty ? null : storeName;
+  String? get imagePathOrNull => imagePath.isEmpty ? null : imagePath;
 
   Transaction copyWith({
     String? categoryId,
@@ -88,6 +95,8 @@ class Transaction extends HiveObject {
     DateTime? date,
     String? note,
     TransactionType? type,
+    String? storeName,
+    String? imagePath,
   }) {
     return Transaction(
       id: id,
@@ -96,6 +105,8 @@ class Transaction extends HiveObject {
       date: date ?? this.date,
       note: note ?? this.note,
       type: type ?? this.type,
+      storeName: storeName ?? this.storeName,
+      imagePath: imagePath ?? this.imagePath,
     );
   }
 }
@@ -106,14 +117,31 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
 
   @override
   Transaction read(BinaryReader reader) {
+    final id = reader.readString();
+    final categoryId = reader.readString();
+    final amount = reader.readDouble();
+    final date = DateTime.fromMillisecondsSinceEpoch(reader.readInt());
+    final note = reader.readString();
+    final type =
+        reader.readBool() ? TransactionType.income : TransactionType.expense;
+
+    // v2 fields — backward compatible with old data
+    String storeName = '';
+    String imagePath = '';
+    try {
+      storeName = reader.readString();
+      imagePath = reader.readString();
+    } catch (_) {}
+
     return Transaction(
-      id: reader.readString(),
-      categoryId: reader.readString(),
-      amount: reader.readDouble(),
-      date: DateTime.fromMillisecondsSinceEpoch(reader.readInt()),
-      note: reader.readString(),
-      type:
-          reader.readBool() ? TransactionType.income : TransactionType.expense,
+      id: id,
+      categoryId: categoryId,
+      amount: amount,
+      date: date,
+      note: note,
+      type: type,
+      storeName: storeName,
+      imagePath: imagePath,
     );
   }
 
@@ -125,6 +153,9 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
     writer.writeInt(obj.date.millisecondsSinceEpoch);
     writer.writeString(obj.note);
     writer.writeBool(obj.type == TransactionType.income);
+    // v2 fields
+    writer.writeString(obj.storeName);
+    writer.writeString(obj.imagePath);
   }
 }
 
