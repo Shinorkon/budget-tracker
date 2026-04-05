@@ -3,9 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  // Set this to your Contabo server URL after deployment
-  // TODO: Update to Contabo server URL after deployment
-  static const String _baseUrl = 'http://10.0.2.2:8000';
+  static const String _baseUrl = 'http://37.60.229.74:8001';
 
   String get baseUrl => _baseUrl;
 
