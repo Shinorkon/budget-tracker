@@ -1,5 +1,5 @@
 name: budget_app_flutter
-version: 2.0.0+2
+version: 2.0.0+3
 description: A beautifully designed personal budget tracker with categories, transactions, analytics, and more.
 environment:
   sdk: ">=3.0.0 <4.0.0"
