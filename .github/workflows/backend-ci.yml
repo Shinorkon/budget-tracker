@@ -8,14 +8,18 @@ on:
       - develop
     paths:
       - 'backend/**'
-      - 'requirements.txt'
+      - 'backend/requirements.txt'
+      - '.github/workflows/backend-ci.yml'
+      - '.github/workflows/deploy-backend.yml'
   pull_request:
     branches:
       - main
       - master
     paths:
       - 'backend/**'
-      - 'requirements.txt'
+      - 'backend/requirements.txt'
+      - '.github/workflows/backend-ci.yml'
+      - '.github/workflows/deploy-backend.yml'
 
 jobs:
   lint:
