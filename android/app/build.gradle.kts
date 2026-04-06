@@ -46,12 +46,6 @@ android {
     }
 
     buildTypes {
-        debug {
-            // Keep debug installs separate so they never replace/conflict with official releases.
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
-        }
-
         release {
             signingConfig = signingConfigs.getByName("release")
         }
