@@ -6,6 +6,8 @@ import '../models/budget_provider.dart';
 import '../models/receipt_provider.dart';
 import '../services/api_service.dart';
 import '../services/sync_service.dart';
+import '../services/sms_transaction_service.dart';
+import '../services/live_sms_listener_service.dart';
 import 'auth_screen.dart';
 import 'categories_screen.dart';
 import 'receipts_history_screen.dart';
@@ -202,6 +204,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             builder: (_) => const SmsImportScreen(),
                           ),
                         ),
+                      ),
+                      _divider(),
+                      _SettingsTile(
+                        icon: Icons.tune_rounded,
+                        iconColor: AppColors.primaryLight,
+                        title: 'SMS Listener Config',
+                        subtitle: 'Senders, regex pattern, and live listening',
+                        onTap: () => _showSmsListenerConfig(context, budget),
                       ),
                       _divider(),
                       _SettingsTile(
@@ -595,6 +605,172 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }),
             const SizedBox(height: 16),
           ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showSmsListenerConfig(
+    BuildContext context,
+    BudgetProvider budget,
+  ) async {
+    final currentSenders = await SmsTransactionService.getSenders();
+    final currentPattern = await SmsTransactionService.getPattern();
+    final currentAutoListen = await SmsTransactionService.getAutoListenEnabled();
+
+    if (!context.mounted) return;
+
+    final sendersCtrl = TextEditingController(text: currentSenders.join(', '));
+    final patternCtrl = TextEditingController(text: currentPattern);
+    bool autoListen = currentAutoListen;
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+          ),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.textMuted,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'SMS Listener Configuration',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Configure who to listen to and how transactions are parsed from SMS.',
+                    style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                  ),
+                  const SizedBox(height: 18),
+                  SwitchListTile(
+                    value: autoListen,
+                    activeThumbColor: AppColors.income,
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text(
+                      'Enable Live SMS Listener',
+                      style: TextStyle(color: AppColors.textPrimary),
+                    ),
+                    subtitle: const Text(
+                      'Automatically process incoming SMS in real-time.',
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    ),
+                    onChanged: (v) => setSheetState(() => autoListen = v),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: sendersCtrl,
+                    style: const TextStyle(color: AppColors.textPrimary),
+                    decoration: InputDecoration(
+                      labelText: 'Allowed Senders',
+                      hintText: '455, BML, BANKNAME',
+                      helperText: 'Comma-separated sender IDs or names.',
+                      helperStyle:
+                          const TextStyle(color: AppColors.textMuted, fontSize: 11),
+                      labelStyle:
+                          const TextStyle(color: AppColors.textSecondary),
+                      hintStyle: const TextStyle(color: AppColors.textMuted),
+                      filled: true,
+                      fillColor: AppColors.surfaceLight,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: patternCtrl,
+                    maxLines: 4,
+                    minLines: 3,
+                    style: const TextStyle(color: AppColors.textPrimary),
+                    decoration: InputDecoration(
+                      labelText: 'SMS Regex Pattern',
+                      hintText: SmsTransactionService.defaultPattern,
+                      labelStyle:
+                          const TextStyle(color: AppColors.textSecondary),
+                      hintStyle: const TextStyle(color: AppColors.textMuted),
+                      filled: true,
+                      fillColor: AppColors.surfaceLight,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            final senders = sendersCtrl.text
+                                .split(',')
+                                .map((e) => e.trim())
+                                .where((e) => e.isNotEmpty)
+                                .toList();
+
+                            await SmsTransactionService.setSenders(senders);
+                            await SmsTransactionService.setPattern(patternCtrl.text);
+                            await SmsTransactionService.setAutoListenEnabled(autoListen);
+
+                            if (autoListen) {
+                              await LiveSmsListenerService.instance.start(budget);
+                            }
+
+                            if (!sheetContext.mounted) return;
+                            Navigator.pop(sheetContext);
+
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: const Text('SMS listener settings saved'),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                backgroundColor: AppColors.income,
+                              ),
+                            );
+                          },
+                          child: const Text('Save'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

@@ -32,7 +32,9 @@ class SmsTransactionService {
 
   // Pref keys
   static const _keySender = 'sms_sender_address';
+  static const _keySenders = 'sms_sender_addresses';
   static const _keyPattern = 'sms_tx_pattern';
+  static const _keyAutoListenEnabled = 'sms_auto_listen_enabled';
 
   // Default BML pattern
   static const defaultPattern =
@@ -42,13 +44,57 @@ class SmsTransactionService {
   // ─── Settings persistence ──────────────────────────────────
 
   static Future<String> getSender() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_keySender) ?? defaultSender;
+    final senders = await getSenders();
+    return senders.isNotEmpty ? senders.first : defaultSender;
   }
 
   static Future<void> setSender(String sender) async {
+    await setSenders([sender]);
+  }
+
+  static Future<List<String>> getSenders() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keySender, sender.trim());
+
+    final list = prefs.getStringList(_keySenders);
+    if (list != null && list.isNotEmpty) {
+      return list
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toSet()
+          .toList();
+    }
+
+    // Backward compatibility with old single sender setting.
+    final legacy = prefs.getString(_keySender)?.trim();
+    if (legacy != null && legacy.isNotEmpty) {
+      return [legacy];
+    }
+    return [defaultSender];
+  }
+
+  static Future<void> setSenders(List<String> senders) async {
+    final prefs = await SharedPreferences.getInstance();
+    final normalized = senders
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
+
+    await prefs.setStringList(_keySenders, normalized);
+    await prefs.setString(
+      _keySender,
+      normalized.isNotEmpty ? normalized.first : defaultSender,
+    );
+  }
+
+  static Future<bool> getAutoListenEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyAutoListenEnabled) ?? true;
+  }
+
+  static Future<void> setAutoListenEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyAutoListenEnabled, enabled);
   }
 
   static Future<String> getPattern() async {
@@ -68,18 +114,28 @@ class SmsTransactionService {
     final status = await Permission.sms.request();
     if (!status.isGranted) return [];
 
-    final sender = await getSender();
+    final senders = await getSenders();
     final patternStr = await getPattern();
     final pattern = RegExp(patternStr, dotAll: true);
 
-    final List<dynamic> messages =
-        await _channel.invokeMethod('getSms', {'address': sender});
+    final allMessages = <dynamic>[];
+    for (final sender in senders) {
+      final List<dynamic> messages =
+          await _channel.invokeMethod('getSms', {'address': sender});
+      allMessages.addAll(messages);
+    }
 
     final parsed = <ParsedSmsTransaction>[];
-    for (final msg in messages) {
+    final seenRefs = <String>{};
+    for (final msg in allMessages) {
       final body = msg['body'] as String? ?? '';
       final tx = _parseSms(body, pattern);
-      if (tx != null) parsed.add(tx);
+      if (tx == null) continue;
+
+      final dedupeKey = '${tx.referenceNo}|${tx.date.toIso8601String()}';
+      if (seenRefs.contains(dedupeKey)) continue;
+      seenRefs.add(dedupeKey);
+      parsed.add(tx);
     }
     return parsed;
   }
@@ -93,15 +149,19 @@ class SmsTransactionService {
 
   /// Whether an incoming SMS sender matches configured sender rule.
   static Future<bool> isConfiguredSender(String incomingAddress) async {
-    final configured = (await getSender()).trim().toUpperCase();
-    if (configured.isEmpty) return true;
+    final configuredSenders = (await getSenders())
+      .map((e) => e.trim().toUpperCase())
+      .where((e) => e.isNotEmpty)
+      .toList();
+    if (configuredSenders.isEmpty) return true;
 
     final incoming = incomingAddress.trim().toUpperCase();
     if (incoming.isEmpty) return false;
 
-    return incoming == configured ||
-        incoming.contains(configured) ||
-        configured.contains(incoming);
+    return configuredSenders.any((configured) =>
+      incoming == configured ||
+      incoming.contains(configured) ||
+      configured.contains(incoming));
   }
 
   static ParsedSmsTransaction? _parseSms(String body, RegExp pattern) {

@@ -29,6 +29,9 @@ class LiveSmsListenerService {
 
           if (body.trim().isEmpty) return;
 
+          final enabled = await SmsTransactionService.getAutoListenEnabled();
+          if (!enabled) return;
+
           final senderMatches = await SmsTransactionService.isConfiguredSender(address);
           if (!senderMatches) return;
 
