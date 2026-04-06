@@ -79,7 +79,6 @@ def upgrade() -> None:
         unique=False,
     )
 
-    transaction_type.create(op.get_bind(), checkfirst=True)
     op.create_table(
         "transactions",
         sa.Column("id", sa.String(), nullable=False),
