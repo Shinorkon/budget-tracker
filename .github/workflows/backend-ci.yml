@@ -100,6 +100,10 @@ jobs:
           python -c "from app.core.db import engine; engine.connect(); print('✅ Database connection successful')"
 
       - name: Check API imports
+        env:
+          DATABASE_URL: postgresql://budgy:budgy@localhost:5432/budgy
+          SECRET_KEY: test-secret-key-12345
+          DEBUG: false
         run: |
           cd backend
           python -c "from app.main import app; print('✅ API imports successful')"
