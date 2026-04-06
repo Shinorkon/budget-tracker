@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/budget_provider.dart';
+import '../models/receipt_provider.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/sync_service.dart';
 
 class AuthScreen extends StatefulWidget {
   final VoidCallback onAuthenticated;
@@ -253,6 +257,14 @@ class _AuthScreenState extends State<AuthScreen>
           _passwordController.text,
         );
       }
+
+      // Push existing local Hive data to backend immediately after auth.
+      await SyncService(
+        api: _api,
+        budgetProvider: context.read<BudgetProvider>(),
+        receiptProvider: context.read<ReceiptProvider>(),
+      ).sync();
+
       widget.onAuthenticated();
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));

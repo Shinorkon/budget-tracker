@@ -709,6 +709,7 @@ class _EditTransactionSheetState extends State<_EditTransactionSheet> {
   late DateTime _selectedDate;
   late TimeOfDay _selectedTime;
   String? _imagePath;
+  bool _defaultCategoryQueued = false;
 
   @override
   void initState() {
@@ -738,6 +739,7 @@ class _EditTransactionSheetState extends State<_EditTransactionSheet> {
     final budget = Provider.of<BudgetProvider>(context);
     final isExpense = widget.transaction.type == TransactionType.expense;
     final accentColor = isExpense ? AppColors.expense : AppColors.income;
+    _ensureDefaultCategory(budget, isExpense);
 
     return Container(
       constraints: BoxConstraints(
@@ -1166,22 +1168,21 @@ class _EditTransactionSheetState extends State<_EditTransactionSheet> {
     setState(() => _imagePath = saved.path);
   }
 
+  void _ensureDefaultCategory(BudgetProvider budget, bool isExpense) {
+    if (!isExpense || _selectedCategoryId != null) return;
+    if (budget.categories.isEmpty || _defaultCategoryQueued) return;
+
+    _defaultCategoryQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _defaultCategoryQueued = false;
+      if (!mounted || !isExpense || _selectedCategoryId != null) return;
+      if (budget.categories.isEmpty) return;
+      setState(() => _selectedCategoryId = budget.categories.first.id);
+    });
+  }
+
   void _save(BudgetProvider budget) {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-
-    final isExpense = widget.transaction.type == TransactionType.expense;
-    if (isExpense && _selectedCategoryId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please select a category'),
-          backgroundColor: AppColors.expense,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-      return;
-    }
 
     final dateWithTime = DateTime(
       _selectedDate.year,

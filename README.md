@@ -62,6 +62,12 @@ A beautifully designed personal budget tracker built with **Flutter**. Track you
 - **Clear all data** — Nuclear reset with confirmation dialog
 - **About section** — Version info and tech stack
 
+### 📦 Release Versioning
+- **Version label** — The app shows the installed package version and build number in Settings
+- **Play Store releases** — Bump the version in `pubspec.yaml` for each public release
+- **Build number** — Increase the build number for every new uploaded artifact
+- **Source of truth** — Android `versionName` and `versionCode` are driven from Flutter's `pubspec.yaml`
+
 ---
 
 ## 🎨 Design
@@ -115,6 +121,15 @@ flutter run -d web-server --web-port 8080
 
 # Run on connected mobile device
 flutter run
+
+### Build a release APK
+
+```bash
+# Update the version in pubspec.yaml first, then build the release artifact
+flutter build apk --release --target-platform android-arm64 --split-per-abi --no-tree-shake-icons
+```
+
+For Play Store uploads, prefer `flutter build appbundle --release` and increment the version/build number in `pubspec.yaml` before each major release.
 ```
 
 ---

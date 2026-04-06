@@ -29,6 +29,7 @@ class ReceiptReviewScreen extends StatefulWidget {
 class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
   late final TextEditingController _storeCtrl;
   late DateTime _date;
+  late TimeOfDay _time;
   late List<ReceiptItem> _items;
   late double _total;
   String? _categoryId;
@@ -39,7 +40,12 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
   void initState() {
     super.initState();
     _storeCtrl = TextEditingController(text: widget.parsed.storeName);
-    _date = widget.parsed.date;
+    _date = DateTime(
+      widget.parsed.date.year,
+      widget.parsed.date.month,
+      widget.parsed.date.day,
+    );
+    _time = TimeOfDay.now();
     _items = List.from(widget.parsed.items);
     _total = widget.parsed.totalAmount;
     _totalCtrl = TextEditingController(
@@ -92,6 +98,23 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
       ),
     );
     if (picked != null) setState(() => _date = picked);
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _time,
+      builder: (ctx, child) => Theme(
+        data: Theme.of(ctx).copyWith(
+          colorScheme: const ColorScheme.dark(
+            primary: AppColors.primary,
+            surface: AppColors.surface,
+          ),
+        ),
+        child: child!,
+      ),
+    );
+    if (picked != null) setState(() => _time = picked);
   }
 
   void _addItem() {
@@ -181,6 +204,36 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                               color: AppColors.textMuted, size: 20),
                           const SizedBox(width: 12),
                           Text(formatDate(_date),
+                              style: const TextStyle(
+                                  color: AppColors.textPrimary, fontSize: 15)),
+                          const Spacer(),
+                          const Icon(Icons.chevron_right_rounded,
+                              color: AppColors.textMuted),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Time
+                  _sectionLabel('Time'),
+                  const SizedBox(height: 8),
+                  GestureDetector(
+                    onTap: _pickTime,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: AppColors.surfaceLight,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.access_time_rounded,
+                              color: AppColors.textMuted, size: 20),
+                          const SizedBox(width: 12),
+                          Text(_time.format(context),
                               style: const TextStyle(
                                   color: AppColors.textPrimary, fontSize: 15)),
                           const Spacer(),
@@ -332,7 +385,13 @@ class _ReceiptReviewScreenState extends State<ReceiptReviewScreen> {
                     'storeName': _storeCtrl.text.trim().isEmpty
                         ? 'Unknown Store'
                         : _storeCtrl.text.trim(),
-                    'date': _date,
+                    'date': DateTime(
+                      _date.year,
+                      _date.month,
+                      _date.day,
+                      _time.hour,
+                      _time.minute,
+                    ),
                     'total': double.tryParse(_totalCtrl.text) ?? _total,
                     'items': _items,
                     'categoryId': _categoryId,

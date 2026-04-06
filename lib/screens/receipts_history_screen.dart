@@ -216,7 +216,7 @@ class ReceiptCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          formatDate(receipt.date),
+                          formatDateTime(receipt.date),
                           style: const TextStyle(
                               color: AppColors.textMuted, fontSize: 12),
                         ),
@@ -319,7 +319,7 @@ class ReceiptDetailScreen extends StatelessWidget {
               Icons.storefront_rounded,
               receipt.storeName.isEmpty ? 'Unknown Store' : receipt.storeName),
           const SizedBox(height: 8),
-          _metaRow(Icons.calendar_today_rounded, formatDate(receipt.date)),
+          _metaRow(Icons.calendar_today_rounded, formatDateTime(receipt.date)),
           const SizedBox(height: 20),
 
           // Items header

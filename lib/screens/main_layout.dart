@@ -165,6 +165,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
   DateTime _selectedDate = DateTime.now();
   TimeOfDay _selectedTime = TimeOfDay.now();
   String? _imagePath;
+  bool _defaultCategoryQueued = false;
 
   @override
   void initState() {
@@ -190,6 +191,7 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
   @override
   Widget build(BuildContext context) {
     final budget = Provider.of<BudgetProvider>(context);
+    _ensureDefaultCategory(budget);
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.85,
@@ -606,23 +608,28 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
     setState(() => _imagePath = saved.path);
   }
 
+  void _ensureDefaultCategory(BudgetProvider budget) {
+    if (_tabController.index != 0 || _selectedCategoryId != null) return;
+    if (budget.categories.isEmpty || _defaultCategoryQueued) return;
+
+    _defaultCategoryQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _defaultCategoryQueued = false;
+      if (!mounted || _tabController.index != 0 || _selectedCategoryId != null) {
+        return;
+      }
+      if (budget.categories.isEmpty) return;
+      setState(() {
+        _selectedCategoryId =
+            widget.initialCategoryId ?? budget.categories.first.id;
+      });
+    });
+  }
+
   void _submit(BudgetProvider budget) {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     final isExpense = _tabController.index == 0;
-
-    if (isExpense && _selectedCategoryId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please select a category'),
-          backgroundColor: AppColors.expense,
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-      return;
-    }
 
     final amount = double.parse(_amountController.text);
     final dateWithTime = DateTime(

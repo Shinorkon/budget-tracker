@@ -18,6 +18,10 @@ String formatDate(DateTime date) {
   return DateFormat('MMM d, yyyy').format(date);
 }
 
+String formatDateTime(DateTime date) {
+  return DateFormat('MMM d, yyyy • h:mm a').format(date);
+}
+
 String formatDateShort(DateTime date) {
   final now = DateTime.now();
   final today = DateTime(now.year, now.month, now.day);

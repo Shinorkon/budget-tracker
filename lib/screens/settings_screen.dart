@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/app_theme.dart';
 import '../models/budget_provider.dart';
 import '../models/receipt_provider.dart';
@@ -22,6 +23,21 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final ApiService _api = ApiService();
   bool _isSyncing = false;
+  String _appVersion = 'Loading...';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
+    setState(() {
+      _appVersion = '${info.version} (${info.buildNumber})';
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +134,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             title: isLoggedIn ? 'Account Connected' : 'No Account',
                             subtitle:
                                 isLoggedIn ? 'Signed in and ready to sync' : 'Sign in to enable cloud sync',
-                            onTap: () => _openAuth(context),
+                            onTap: () => isLoggedIn
+                              ? _showAccountDetails(context)
+                              : _openAuth(context),
                           ),
                           _divider(),
                           _SettingsTile(
@@ -278,7 +296,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.info_outline_rounded,
                         iconColor: AppColors.accent,
                         title: 'Version',
-                        subtitle: '2.0.0',
+                        subtitle: _appVersion,
                         onTap: () {},
                       ),
                       _divider(),
@@ -321,6 +339,131 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  Future<void> _showAccountDetails(BuildContext context) async {
+    try {
+      final account = await _api.me();
+      if (!context.mounted) return;
+
+      final lastSyncedAt = await _api.lastSyncedAt;
+
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.transparent,
+        builder: (sheetContext) => Container(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.textMuted,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Account Connected',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              _detailRow('Username', account['username']?.toString() ?? '-'),
+              _detailRow('Email', account['email']?.toString() ?? '-'),
+              _detailRow('Currency', account['currency']?.toString() ?? '-'),
+              _detailRow(
+                'Last Sync',
+                lastSyncedAt == null ? 'Never' : lastSyncedAt.toLocal().toString(),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        _syncNow(
+                          context,
+                          Provider.of<BudgetProvider>(context, listen: false),
+                          Provider.of<ReceiptProvider>(context, listen: false),
+                        );
+                      },
+                      child: const Text('Sync Now'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                        _logout(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.warning,
+                      ),
+                      child: const Text(
+                        'Sign Out',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Session expired. Please sign in again.'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+      await _openAuth(context);
+    }
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _syncNow(

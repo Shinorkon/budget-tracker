@@ -147,6 +147,16 @@ class ApiService {
     throw Exception(jsonDecode(response.body)['detail'] ?? 'Login failed');
   }
 
+  Future<Map<String, dynamic>> me() async {
+    final response = await authenticatedRequest('GET', '/api/auth/me');
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception(
+      jsonDecode(response.body)['detail'] ?? 'Failed to load account details',
+    );
+  }
+
   Future<void> logout() async {
     await clearTokens();
   }
