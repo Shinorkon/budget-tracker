@@ -96,13 +96,15 @@ jobs:
         env:
           DATABASE_URL: postgresql://budgy:budgy@localhost:5432/budgy
         run: |
+          cd backend
           python -c "from app.core.db import engine; engine.connect(); print('✅ Database connection successful')"
 
       - name: Check API imports
         run: |
-          python -c "from backend.app.main import app; print('✅ API imports successful')"
-          python -c "from backend.app.api.routes.sync import router; print('✅ Sync router imports successful')"
-          python -c "from backend.app.api.routes.auth import router; print('✅ Auth router imports successful')"
+          cd backend
+          python -c "from app.main import app; print('✅ API imports successful')"
+          python -c "from app.api.routes.sync import router; print('✅ Sync router imports successful')"
+          python -c "from app.api.routes.auth import router; print('✅ Auth router imports successful')"
 
   docker-build:
     runs-on: ubuntu-latest
