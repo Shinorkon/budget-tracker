@@ -22,6 +22,8 @@ class Transaction(Base):
     type = Column(SQLEnum(TransactionType), nullable=False)
     store_name = Column(String, default="")
     image_path = Column(String, default="")
+    currency = Column(String(10), default="MVR")  # Original currency (for SMS imports)
+    exchange_rate = Column(Float, nullable=True)  # Conversion rate used (for audit trail)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

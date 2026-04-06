@@ -15,10 +15,14 @@ class SmsImportScreen extends StatefulWidget {
 
 class _SmsImportScreenState extends State<SmsImportScreen> {
   List<ParsedSmsTransaction>? _transactions;
+  List<ParsedSmsTransaction>? _filteredTransactions;
   bool _loading = true;
   String? _error;
   bool _showAll = false;
   String _currentSender = SmsTransactionService.defaultSender;
+  DateTime _dateRangeStart = DateTime.now().subtract(const Duration(days: 30));
+  DateTime _dateRangeEnd = DateTime.now();
+  bool _dateFilterEnabled = false;
 
   @override
   void initState() {
@@ -61,11 +65,40 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
   }
 
   int get _selectedCount =>
-      _transactions?.where((t) => t.selected).length ?? 0;
+      _getDisplayedTransactions()?.where((t) => t.selected).length ?? 0;
+
+  List<ParsedSmsTransaction>? _getDisplayedTransactions() {
+    if (_dateFilterEnabled && _filteredTransactions != null) {
+      return _filteredTransactions;
+    }
+    return _transactions;
+  }
+
+  void _applyDateFilter() {
+    if (_transactions == null) return;
+    final filtered = SmsTransactionService.filterByDateRange(
+      _transactions!,
+      _dateRangeStart,
+      _dateRangeEnd,
+    );
+    setState(() {
+      _filteredTransactions = filtered;
+    });
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _dateFilterEnabled = false;
+      _filteredTransactions = null;
+    });
+  }
 
   Future<void> _importSelected() async {
     final budget = Provider.of<BudgetProvider>(context, listen: false);
-    final selected = _transactions!.where((t) => t.selected).toList();
+    final displayed = _getDisplayedTransactions();
+    if (displayed == null) return;
+    
+    final selected = displayed.where((t) => t.selected).toList();
 
     int imported = 0;
     for (final parsed in selected) {
@@ -87,6 +120,288 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
     );
 
     Navigator.of(context).pop();
+  }
+
+  Future<void> _showDateFilter() async {
+    DateTime tempStart = _dateRangeStart;
+    DateTime tempEnd = _dateRangeEnd;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.textMuted,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Filter by Date Range',
+                  style: Theme.of(ctx).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 20),
+                // Quick filters
+                const Text(
+                  'Quick Filters',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildQuickFilterChip(
+                        ctx,
+                        '7 Days',
+                        () {
+                          setModalState(() {
+                            tempEnd = DateTime.now();
+                            tempStart =
+                                tempEnd.subtract(const Duration(days: 7));
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      _buildQuickFilterChip(
+                        ctx,
+                        '14 Days',
+                        () {
+                          setModalState(() {
+                            tempEnd = DateTime.now();
+                            tempStart =
+                                tempEnd.subtract(const Duration(days: 14));
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      _buildQuickFilterChip(
+                        ctx,
+                        '30 Days',
+                        () {
+                          setModalState(() {
+                            tempEnd = DateTime.now();
+                            tempStart =
+                                tempEnd.subtract(const Duration(days: 30));
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      _buildQuickFilterChip(
+                        ctx,
+                        '90 Days',
+                        () {
+                          setModalState(() {
+                            tempEnd = DateTime.now();
+                            tempStart =
+                                tempEnd.subtract(const Duration(days: 90));
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Custom date range
+                const Text(
+                  'Custom Range',
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () async {
+                          final date = await showDatePicker(
+                            context: ctx,
+                            initialDate: tempStart,
+                            firstDate: DateTime(2000),
+                            lastDate: tempEnd,
+                          );
+                          if (date != null) {
+                            setModalState(() => tempStart = date);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 12, horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceLight,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.primary),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'From',
+                                style: TextStyle(
+                                  color: AppColors.textMuted,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${tempStart.year}-${tempStart.month.toString().padLeft(2, '0')}-${tempStart.day.toString().padLeft(2, '0')}',
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () async {
+                          final date = await showDatePicker(
+                            context: ctx,
+                            initialDate: tempEnd,
+                            firstDate: tempStart,
+                            lastDate: DateTime.now(),
+                          );
+                          if (date != null) {
+                            setModalState(() => tempEnd = date);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 12, horizontal: 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceLight,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.primary),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'To',
+                                style: TextStyle(
+                                  color: AppColors.textMuted,
+                                  fontSize: 11,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${tempEnd.year}-${tempEnd.month.toString().padLeft(2, '0')}-${tempEnd.day.toString().padLeft(2, '0')}',
+                                style: const TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side:
+                              const BorderSide(color: AppColors.textSecondary),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _dateRangeStart = tempStart;
+                            _dateRangeEnd = tempEnd;
+                            _dateFilterEnabled = true;
+                          });
+                          _applyDateFilter();
+                          Navigator.pop(ctx);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Apply Filter',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickFilterChip(
+    BuildContext ctx,
+    String label,
+    VoidCallback onTap,
+  ) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceLight,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.primary),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.primary,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
   }
 
   void _showSettings() {
@@ -193,6 +508,15 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
         backgroundColor: AppColors.background,
         title: const Text('Import from SMS'),
         actions: [
+          IconButton(
+            onPressed: _dateFilterEnabled ? _clearDateFilter : _showDateFilter,
+            icon: Icon(
+              _dateFilterEnabled ? Icons.calendar_today : Icons.calendar_today_outlined,
+              size: 20,
+              color: _dateFilterEnabled ? AppColors.income : AppColors.accent,
+            ),
+            tooltip: _dateFilterEnabled ? 'Clear Date Filter' : 'Filter by Date',
+          ),
           IconButton(
             onPressed: _showSettings,
             icon: const Icon(Icons.tune_rounded, size: 20),
@@ -306,16 +630,18 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
                             children: [
                               GestureDetector(
                                 onTap: () {
-                                  final allSelected = _selectedCount ==
-                                      _transactions!.length;
+                                  final displayed = _getDisplayedTransactions();
+                                  if (displayed == null) return;
+                                  final allSelected =
+                                      _selectedCount == displayed.length;
                                   setState(() {
-                                    for (final t in _transactions!) {
+                                    for (final t in displayed) {
                                       t.selected = !allSelected;
                                     }
                                   });
                                 },
                                 child: Icon(
-                                  _selectedCount == _transactions!.length
+                                  _selectedCount == _getDisplayedTransactions()?.length
                                       ? Icons.check_box_rounded
                                       : _selectedCount > 0
                                           ? Icons
@@ -327,13 +653,26 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
                                 ),
                               ),
                               const SizedBox(width: 12),
-                              Text(
-                                '${_transactions!.length} transaction${_transactions!.length == 1 ? '' : 's'} found',
-                                style: const TextStyle(
-                                  color: AppColors.textSecondary,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${_getDisplayedTransactions()?.length ?? 0} transaction${(_getDisplayedTransactions()?.length ?? 0) == 1 ? '' : 's'} found',
+                                    style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  if (_dateFilterEnabled)
+                                    Text(
+                                      'Filtered: ${_dateRangeStart.year}-${_dateRangeStart.month}-${_dateRangeStart.day} to ${_dateRangeEnd.year}-${_dateRangeEnd.month}-${_dateRangeEnd.day}',
+                                      style: const TextStyle(
+                                        color: AppColors.income,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                ],
                               ),
                               const Spacer(),
                               Text(
@@ -352,9 +691,12 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
                           child: ListView.builder(
                             padding:
                                 const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                            itemCount: _transactions!.length,
+                            itemCount: _getDisplayedTransactions()?.length ?? 0,
                             itemBuilder: (context, index) {
-                              final tx = _transactions![index];
+                              final displayed = _getDisplayedTransactions();
+                              if (displayed == null || index >= displayed.length)
+                                return null;
+                              final tx = displayed[index];
                               return _SmsTxCard(
                                 tx: tx,
                                 categories: budget.categories,
@@ -368,8 +710,8 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
                         ),
                       ],
                     ),
-      bottomSheet: (_transactions != null &&
-              _transactions!.isNotEmpty &&
+      bottomSheet: (_getDisplayedTransactions() != null &&
+              (_getDisplayedTransactions()?.isNotEmpty ?? false) &&
               _selectedCount > 0)
           ? Container(
               width: double.infinity,

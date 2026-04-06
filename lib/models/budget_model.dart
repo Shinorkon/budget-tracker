@@ -74,6 +74,8 @@ class Transaction extends HiveObject {
   final TransactionType type;
   final String storeName;
   final String imagePath;
+  final String currency;
+  final double? exchangeRate;
 
   Transaction({
     required this.id,
@@ -84,6 +86,8 @@ class Transaction extends HiveObject {
     required this.type,
     this.storeName = '',
     this.imagePath = '',
+    this.currency = 'MVR',
+    this.exchangeRate,
   });
 
   String? get storeNameOrNull => storeName.isEmpty ? null : storeName;
@@ -97,6 +101,8 @@ class Transaction extends HiveObject {
     TransactionType? type,
     String? storeName,
     String? imagePath,
+    String? currency,
+    double? exchangeRate,
   }) {
     return Transaction(
       id: id,
@@ -107,6 +113,8 @@ class Transaction extends HiveObject {
       type: type ?? this.type,
       storeName: storeName ?? this.storeName,
       imagePath: imagePath ?? this.imagePath,
+      currency: currency ?? this.currency,
+      exchangeRate: exchangeRate ?? this.exchangeRate,
     );
   }
 }
@@ -133,6 +141,15 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
       imagePath = reader.readString();
     } catch (_) {}
 
+    // v3 fields — currency and exchange rate
+    String currency = 'MVR';
+    double? exchangeRate;
+    try {
+      currency = reader.readString();
+      final rateValue = reader.readDouble();
+      exchangeRate = rateValue > 0 ? rateValue : null;
+    } catch (_) {}
+
     return Transaction(
       id: id,
       categoryId: categoryId,
@@ -142,6 +159,8 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
       type: type,
       storeName: storeName,
       imagePath: imagePath,
+      currency: currency,
+      exchangeRate: exchangeRate,
     );
   }
 
@@ -156,6 +175,9 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
     // v2 fields
     writer.writeString(obj.storeName);
     writer.writeString(obj.imagePath);
+    // v3 fields
+    writer.writeString(obj.currency);
+    writer.writeDouble(obj.exchangeRate ?? -1.0);
   }
 }
 

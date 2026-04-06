@@ -106,3 +106,31 @@ def me(user: User = Depends(get_current_user)):
         username=user.username,
         currency=user.currency,
     )
+
+
+class UpdateCurrencyRequest(BaseModel):
+    currency: str
+
+
+@router.patch("/me/currency", response_model=UserResponse)
+def update_currency(
+    req: UpdateCurrencyRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Update the user's primary currency preference."""
+    if not req.currency or len(req.currency) > 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid currency code. Must be 1-10 characters.",
+        )
+
+    user.currency = req.currency.upper()
+    db.commit()
+
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        username=user.username,
+        currency=user.currency,
+    )

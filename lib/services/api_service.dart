@@ -78,6 +78,8 @@ class ApiService {
     switch (method) {
       case 'POST':
         return http.post(uri, headers: headers, body: jsonEncode(body));
+      case 'PATCH':
+        return http.patch(uri, headers: headers, body: jsonEncode(body));
       case 'GET':
         return http.get(uri, headers: headers);
       default:
@@ -154,6 +156,20 @@ class ApiService {
     }
     throw Exception(
       jsonDecode(response.body)['detail'] ?? 'Failed to load account details',
+    );
+  }
+
+  Future<Map<String, dynamic>> updateCurrency(String currency) async {
+    final response = await authenticatedRequest(
+      'PATCH',
+      '/api/auth/me/currency',
+      body: {'currency': currency},
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception(
+      jsonDecode(response.body)['detail'] ?? 'Failed to update currency',
     );
   }
 

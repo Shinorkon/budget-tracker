@@ -135,6 +135,21 @@ class SmsTransactionService {
     }).toList();
   }
 
+  /// Filter transactions by date range.
+  static List<ParsedSmsTransaction> filterByDateRange(
+    List<ParsedSmsTransaction> transactions,
+    DateTime fromDate,
+    DateTime toDate,
+  ) {
+    // Normalize dates to start and end of day
+    final from = DateTime(fromDate.year, fromDate.month, fromDate.day);
+    final to = DateTime(toDate.year, toDate.month, toDate.day, 23, 59, 59);
+
+    return transactions
+        .where((t) => t.date.isAfter(from) && t.date.isBefore(to))
+        .toList();
+  }
+
   /// Convert a parsed SMS transaction to an app Transaction.
   static Transaction toTransaction(ParsedSmsTransaction parsed) {
     return Transaction(
@@ -145,6 +160,7 @@ class SmsTransactionService {
       type: TransactionType.expense,
       storeName: parsed.merchant,
       categoryId: parsed.categoryId,
+      currency: parsed.currency,
     );
   }
 
