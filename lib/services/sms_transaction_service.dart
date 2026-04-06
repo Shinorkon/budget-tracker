@@ -84,6 +84,26 @@ class SmsTransactionService {
     return parsed;
   }
 
+  /// Parse a single SMS body using current configured regex pattern.
+  static Future<ParsedSmsTransaction?> parseBodyWithCurrentPattern(String body) async {
+    final patternStr = await getPattern();
+    final pattern = RegExp(patternStr, dotAll: true);
+    return _parseSms(body, pattern);
+  }
+
+  /// Whether an incoming SMS sender matches configured sender rule.
+  static Future<bool> isConfiguredSender(String incomingAddress) async {
+    final configured = (await getSender()).trim().toUpperCase();
+    if (configured.isEmpty) return true;
+
+    final incoming = incomingAddress.trim().toUpperCase();
+    if (incoming.isEmpty) return false;
+
+    return incoming == configured ||
+        incoming.contains(configured) ||
+        configured.contains(incoming);
+  }
+
   static ParsedSmsTransaction? _parseSms(String body, RegExp pattern) {
     final match = pattern.firstMatch(body);
     if (match == null || match.groupCount < 6) return null;

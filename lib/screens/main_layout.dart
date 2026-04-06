@@ -14,6 +14,7 @@ import 'transactions_screen.dart';
 import 'statistics_screen.dart';
 import 'settings_screen.dart';
 import 'scan_receipt_flow.dart';
+import '../services/live_sms_listener_service.dart';
 
 class MainLayout extends StatefulWidget {
   const MainLayout({super.key});
@@ -36,6 +37,12 @@ class _MainLayoutState extends State<MainLayout> {
       StatisticsScreen(),
       SettingsScreen(),
     ];
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final budget = Provider.of<BudgetProvider>(context, listen: false);
+      LiveSmsListenerService.instance.start(budget);
+    });
   }
 
   void _onTabChanged(int index) {
