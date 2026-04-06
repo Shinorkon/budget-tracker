@@ -1,6 +1,6 @@
 """add currency and exchange_rate to transactions
 
-Revision ID: 0002_add_currency_to_transactions
+Revision ID: 0002_add_currency_txn
 Revises: 0001_initial_schema
 Create Date: 2026-04-06 00:00:00
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = "0002_add_currency_to_transactions"
+revision: str = "0002_add_currency_txn"
 down_revision: Union[str, None] = "0001_initial_schema"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
