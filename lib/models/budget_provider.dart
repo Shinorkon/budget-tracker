@@ -301,10 +301,96 @@ class BudgetProvider extends ChangeNotifier {
 
   // ─── CRUD: Transaction ─────────────────────────────────────
   Future<void> addTransaction(Transaction transaction) async {
+    if (isDuplicateTransaction(transaction)) {
+      return;
+    }
     _transactions.add(transaction);
     final box = await Hive.openBox<Transaction>('transactions_v2');
     await box.add(transaction);
     notifyListeners();
+  }
+
+  bool isDuplicateTransaction(Transaction incoming) {
+    // ID collisions are always duplicates.
+    if (_transactions.any((t) => t.id == incoming.id)) {
+      return true;
+    }
+
+    final incomingRef = _extractReferenceNo(incoming.note);
+
+    return _transactions.any((existing) {
+      final existingRef = _extractReferenceNo(existing.note);
+      if (incomingRef != null && existingRef != null && incomingRef == existingRef) {
+        return true;
+      }
+
+      final sameType = existing.type == incoming.type;
+      final sameStore = _normalizeStore(existing.storeName) ==
+          _normalizeStore(incoming.storeName);
+      final closeAmount = (existing.amount - incoming.amount).abs() <= 0.01;
+      final closeTime =
+          (existing.date.difference(incoming.date).inMinutes).abs() <= 2;
+
+      return sameType && sameStore && closeAmount && closeTime;
+    });
+  }
+
+  Transaction? findBestMatchingExpenseTransaction({
+    required double amount,
+    required DateTime date,
+    required String storeName,
+  }) {
+    final normalizedStore = _normalizeStore(storeName);
+
+    // Search only recent expenses, latest first.
+    final recentExpenses = _transactions
+        .where((t) =>
+            t.type == TransactionType.expense &&
+            date.difference(t.date).inHours.abs() <= 24)
+        .toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+
+    Transaction? best;
+    double bestScore = -1;
+
+    for (final tx in recentExpenses) {
+      // Skip already linked receipt transactions.
+      if (tx.note.toLowerCase().contains('[receipt-linked]')) continue;
+
+      final amountDiff = (tx.amount - amount).abs();
+      final amountScore = amountDiff <= 0.01
+          ? 1.0
+          : (amountDiff <= 1.0 ? (1.0 - (amountDiff / 1.0)) : 0.0);
+
+      final timeDiffMinutes = date.difference(tx.date).inMinutes.abs();
+      final timeScore =
+          timeDiffMinutes <= 60 ? (1.0 - (timeDiffMinutes / 60.0)) : 0.0;
+
+      final txStore = _normalizeStore(tx.storeName);
+      final storeScore = (txStore.isNotEmpty && txStore == normalizedStore)
+          ? 1.0
+          : 0.0;
+
+      final score = (amountScore * 0.65) + (storeScore * 0.25) + (timeScore * 0.10);
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = tx;
+      }
+    }
+
+    // Require reasonably high confidence to auto-link.
+    if (bestScore >= 0.75) return best;
+    return null;
+  }
+
+  String _normalizeStore(String store) =>
+      store.trim().toUpperCase().replaceAll(RegExp(r'\s+'), ' ');
+
+  String? _extractReferenceNo(String note) {
+    final match = RegExp(r'Ref\s+([A-Za-z0-9-]+)', caseSensitive: false)
+        .firstMatch(note);
+    return match?.group(1)?.toUpperCase();
   }
 
   Future<void> updateTransaction(String id, Transaction updated) async {

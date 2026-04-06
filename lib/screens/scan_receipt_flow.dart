@@ -288,17 +288,37 @@ class _ScanReceiptFlowState extends State<ScanReceiptFlow> {
     final items = result['items'] as List<ReceiptItem>;
     final categoryId = result['categoryId'] as String?;
 
-    // Create the transaction
-    final txId = _uuid.v4();
-    final transaction = Transaction(
-      id: txId,
-      categoryId: categoryId,
+    // Try to match with existing recent expense transaction first.
+    final matched = budget.findBestMatchingExpenseTransaction(
       amount: total,
       date: date,
-      note: 'Receipt: $storeName',
-      type: TransactionType.expense,
+      storeName: storeName,
     );
-    budget.addTransaction(transaction);
+
+    late final String txId;
+    if (matched != null) {
+      txId = matched.id;
+      final updated = matched.copyWith(
+        categoryId: matched.categoryId ?? categoryId,
+        storeName: matched.storeName.isEmpty ? storeName : matched.storeName,
+        note: matched.note.contains('[receipt-linked]')
+            ? matched.note
+            : '${matched.note} [receipt-linked]',
+      );
+      await budget.updateTransaction(matched.id, updated);
+    } else {
+      txId = _uuid.v4();
+      final transaction = Transaction(
+        id: txId,
+        categoryId: categoryId,
+        amount: total,
+        date: date,
+        note: 'Receipt: $storeName [receipt-linked]',
+        type: TransactionType.expense,
+        storeName: storeName,
+      );
+      await budget.addTransaction(transaction);
+    }
 
     // Build receipt with denormalized store on each item
     final receiptId = _uuid.v4();
@@ -335,8 +355,9 @@ class _ScanReceiptFlowState extends State<ScanReceiptFlow> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-            'Saved — ${formatCurrency(total, budget.currency)} added from $storeName'),
+        content: Text(matched != null
+            ? 'Receipt matched to existing transaction at $storeName'
+            : 'Saved — ${formatCurrency(total, budget.currency)} added from $storeName'),
         backgroundColor: AppColors.income,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

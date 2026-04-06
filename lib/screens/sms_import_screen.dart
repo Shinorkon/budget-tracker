@@ -97,12 +97,23 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
     final budget = Provider.of<BudgetProvider>(context, listen: false);
     final displayed = _getDisplayedTransactions();
     if (displayed == null) return;
-    
+
     final selected = displayed.where((t) => t.selected).toList();
 
     int imported = 0;
+    int skipped = 0;
     for (final parsed in selected) {
-      final tx = SmsTransactionService.toTransaction(parsed);
+      final tx = await SmsTransactionService.toTransaction(
+        parsed,
+        primaryCurrency: budget.currency,
+      );
+
+      final alreadyExists = budget.isDuplicateTransaction(tx);
+      if (alreadyExists) {
+        skipped++;
+        continue;
+      }
+
       await budget.addTransaction(tx);
       imported++;
     }
@@ -111,8 +122,11 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content:
-            Text('Imported $imported transaction${imported == 1 ? '' : 's'}'),
+        content: Text(
+          skipped > 0
+              ? 'Imported $imported, skipped $skipped duplicate${skipped == 1 ? '' : 's'}'
+              : 'Imported $imported transaction${imported == 1 ? '' : 's'}',
+        ),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         backgroundColor: AppColors.income,

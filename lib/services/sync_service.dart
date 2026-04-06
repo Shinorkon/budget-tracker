@@ -53,6 +53,8 @@ class SyncService {
             'type': t.type == TransactionType.expense ? 'expense' : 'income',
             'store_name': t.storeName,
             'image_path': t.imagePath,
+        'currency': t.currency,
+        'exchange_rate': t.exchangeRate,
             'updated_at': DateTime.now().toUtc().toIso8601String(),
           }).toList();
 

@@ -3,6 +3,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/budget_model.dart';
+import 'currency_conversion_service.dart';
 
 class ParsedSmsTransaction {
   final String currency;
@@ -126,6 +127,10 @@ class SmsTransactionService {
     List<Transaction> existing,
   ) {
     return parsed.where((p) {
+      final alreadyByReference = existing.any((e) =>
+          e.note.toUpperCase().contains('REF ${p.referenceNo.toUpperCase()}'));
+      if (alreadyByReference) return false;
+
       return !existing.any((e) =>
           e.amount == p.amount &&
           e.date.year == p.date.year &&
@@ -151,16 +156,39 @@ class SmsTransactionService {
   }
 
   /// Convert a parsed SMS transaction to an app Transaction.
-  static Transaction toTransaction(ParsedSmsTransaction parsed) {
+  static Future<Transaction> toTransaction(
+    ParsedSmsTransaction parsed, {
+    required String primaryCurrency,
+  }) async {
+    final sourceCurrency = parsed.currency.toUpperCase();
+    final targetCurrency = primaryCurrency.toUpperCase();
+
+    double amount = parsed.amount;
+    double? exchangeRate;
+
+    if (sourceCurrency != targetCurrency) {
+      final conversion = CurrencyConversionService();
+      final rate = await conversion.getExchangeRate(sourceCurrency, targetCurrency);
+      if (rate != null) {
+        exchangeRate = rate;
+        amount = parsed.amount * rate;
+      }
+    }
+
+    final note = exchangeRate == null
+        ? '$sourceCurrency · Ref ${parsed.referenceNo}'
+        : '$sourceCurrency ${parsed.amount.toStringAsFixed(2)} @ ${exchangeRate.toStringAsFixed(4)} · Ref ${parsed.referenceNo}';
+
     return Transaction(
       id: const Uuid().v4(),
-      amount: parsed.amount,
+      amount: amount,
       date: parsed.date,
-      note: '${parsed.currency} · Ref ${parsed.referenceNo}',
+      note: note,
       type: TransactionType.expense,
       storeName: parsed.merchant,
       categoryId: parsed.categoryId,
-      currency: parsed.currency,
+      currency: sourceCurrency,
+      exchangeRate: exchangeRate,
     );
   }
 

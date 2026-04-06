@@ -5,11 +5,9 @@ import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 
 class CurrencyConversionService {
-  static const String _apiKey = 'latest'; // ExchangeRate-API uses 'latest' for free tier
   static const String _apiBase = 'https://api.exchangerate-api.com/v4/latest/';
   static const String _cacheBoxName = 'currency_rates';
   static const String _manualRatesBoxName = 'currency_manual_rates';
-  static const String _rateCacheDurationKey = 'cache_timestamp';
   static const int _cacheDurationHours = 12;
 
   // Singleton
@@ -27,10 +25,12 @@ class CurrencyConversionService {
   /// [baseCurrency] is the currency to get rates for (e.g., "MVR")
   Future<Map<String, double>?> getExchangeRates(String baseCurrency) async {
     try {
+      final base = baseCurrency.toUpperCase();
       // Check cache first
       final box = await Hive.openBox<dynamic>(_cacheBoxName);
-      final cacheKey = 'rates_$baseCurrency';
-      final timestamp = box.get(_rateCacheDurationKey) as int?;
+      final cacheKey = 'rates_$base';
+      final cacheTimestampKey = 'cache_timestamp_$base';
+      final timestamp = box.get(cacheTimestampKey) as int?;
 
       if (timestamp != null) {
         final now = DateTime.now().millisecondsSinceEpoch;
@@ -46,7 +46,7 @@ class CurrencyConversionService {
 
       // Fetch from API
       final response = await http
-          .get(Uri.parse('$_apiBase$baseCurrency'))
+          .get(Uri.parse('$_apiBase$base'))
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -58,10 +58,7 @@ class CurrencyConversionService {
 
         // Cache the rates
         await box.put(cacheKey, rates);
-        await box.put(
-          _rateCacheDurationKey,
-          DateTime.now().millisecondsSinceEpoch,
-        );
+        await box.put(cacheTimestampKey, DateTime.now().millisecondsSinceEpoch);
 
         return rates;
       }
@@ -132,45 +129,25 @@ class CurrencyConversionService {
     bool useManual = false,
     String? baseCurrency = 'MVR',
   }) async {
-    if (fromCurrency == toCurrency) return amount;
+    final from = fromCurrency.toUpperCase();
+    final to = toCurrency.toUpperCase();
+    if (from == to) return amount;
 
     try {
       // Try manual rate first if useManual is true
       if (useManual) {
-        final manualRate = await getManualRate(fromCurrency, toCurrency);
+        final manualRate = await getManualRate(from, to);
         if (manualRate != null) {
           return amount * manualRate;
         }
       }
-
-      // Try API rates
-      if (baseCurrency == null || baseCurrency.isEmpty) {
-        baseCurrency = 'MVR';
-      }
-
-      // Get rates for the base currency
-      final rates = await getExchangeRates(baseCurrency) ?? {};
-      if (rates.isEmpty) return null;
-
-      // Calculate conversion
-      // If converting from base to target: amount * rates[toCurrency]
-      if (fromCurrency == baseCurrency && rates.containsKey(toCurrency)) {
-        return amount * rates[toCurrency]!;
-      }
-
-      // If converting from source to base: amount / rates[fromCurrency]
-      if (toCurrency == baseCurrency && rates.containsKey(fromCurrency)) {
-        return amount / rates[fromCurrency]!;
-      }
-
-      // If neither source nor target is base currency:
-      // Convert source -> base, then base -> target
-      if (rates.containsKey(fromCurrency) && rates.containsKey(toCurrency)) {
-        final toBase = amount / rates[fromCurrency]!;
-        return toBase * rates[toCurrency]!;
-      }
-
-      return null;
+      final rate = await getExchangeRate(
+        from,
+        to,
+        baseCurrency: baseCurrency,
+      );
+      if (rate == null) return null;
+      return amount * rate;
     } catch (e) {
       print('Error converting currency: $e');
       return null;
@@ -185,31 +162,31 @@ class CurrencyConversionService {
     String toCurrency, {
     String? baseCurrency = 'MVR',
   }) async {
-    if (fromCurrency == toCurrency) return 1.0;
+    final from = fromCurrency.toUpperCase();
+    final to = toCurrency.toUpperCase();
+    if (from == to) return 1.0;
 
     try {
       // Try manual rate first
-      final manualRate = await getManualRate(fromCurrency, toCurrency);
+      final manualRate = await getManualRate(from, to);
       if (manualRate != null) return manualRate;
 
-      // Try API rates
-      if (baseCurrency == null || baseCurrency.isEmpty) {
-        baseCurrency = 'MVR';
+      // Manual inverse fallback
+      final inverseManualRate = await getManualRate(to, from);
+      if (inverseManualRate != null && inverseManualRate > 0) {
+        return 1.0 / inverseManualRate;
       }
 
-      final rates = await getExchangeRates(baseCurrency) ?? {};
-      if (rates.isEmpty) return null;
-
-      if (fromCurrency == baseCurrency && rates.containsKey(toCurrency)) {
-        return rates[toCurrency];
+      // Prefer direct quote from source currency base (most accurate for pair conversion)
+      final fromRates = await getExchangeRates(from) ?? {};
+      if (fromRates.containsKey(to)) {
+        return fromRates[to]!;
       }
 
-      if (toCurrency == baseCurrency && rates.containsKey(fromCurrency)) {
-        return 1.0 / rates[fromCurrency]!;
-      }
-
-      if (rates.containsKey(fromCurrency) && rates.containsKey(toCurrency)) {
-        return rates[toCurrency]! / rates[fromCurrency]!;
+      // Fallback to inverse quote from target currency base
+      final toRates = await getExchangeRates(to) ?? {};
+      if (toRates.containsKey(from) && toRates[from]! > 0) {
+        return 1.0 / toRates[from]!;
       }
 
       return null;
