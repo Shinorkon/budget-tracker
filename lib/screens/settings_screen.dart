@@ -12,6 +12,7 @@ import 'receipts_history_screen.dart';
 import 'price_search_screen.dart';
 import 'stores_screen.dart';
 import 'items_screen.dart';
+import 'sms_import_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -191,6 +192,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   child: Column(
                     children: [
+                      _SettingsTile(
+                        icon: Icons.sms_rounded,
+                        iconColor: AppColors.income,
+                        title: 'Import from SMS',
+                        subtitle: 'Auto-detect bank transactions from messages',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const SmsImportScreen(),
+                          ),
+                        ),
+                      ),
+                      _divider(),
                       _SettingsTile(
                         icon: Icons.receipt_long_rounded,
                         iconColor: AppColors.primary,
@@ -485,7 +498,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     setState(() => _isSyncing = true);
-    final success = await SyncService(
+    final (success, error) = await SyncService(
       api: _api,
       budgetProvider: budget,
       receiptProvider: receiptProvider,
@@ -495,7 +508,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isSyncing = false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(success ? 'Sync complete' : 'Sync failed. Check connection or login status.'),
+        content: Text(success ? 'Sync complete' : 'Sync failed: ${error ?? "Unknown error"}'),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         backgroundColor: success ? AppColors.income : AppColors.expense,

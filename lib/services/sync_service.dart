@@ -24,11 +24,11 @@ class SyncService {
     return !result.contains(ConnectivityResult.none);
   }
 
-  /// Attempt a full sync. Returns true if successful.
-  Future<bool> sync() async {
-    if (_isSyncing) return false;
-    if (!(await _api.isLoggedIn)) return false;
-    if (!(await _isOnline)) return false;
+  /// Attempt a full sync. Returns (success, errorMessage).
+  Future<(bool, String?)> sync() async {
+    if (_isSyncing) return (false, 'Sync already in progress');
+    if (!(await _api.isLoggedIn)) return (false, 'Not logged in');
+    if (!(await _isOnline)) return (false, 'No internet connection');
 
     _isSyncing = true;
     try {
@@ -82,11 +82,20 @@ class SyncService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         await _api.setLastSyncedAt(DateTime.parse(data['server_time']));
-        return true;
+        return (true, null);
       }
-      return false;
-    } catch (_) {
-      return false;
+
+      // Try to extract server error detail
+      String msg = 'Server returned ${response.statusCode}';
+      try {
+        final body = jsonDecode(response.body);
+        if (body is Map && body['detail'] != null) {
+          msg = body['detail'].toString();
+        }
+      } catch (_) {}
+      return (false, msg);
+    } on Exception catch (e) {
+      return (false, e.toString().replaceFirst('Exception: ', ''));
     } finally {
       _isSyncing = false;
     }
