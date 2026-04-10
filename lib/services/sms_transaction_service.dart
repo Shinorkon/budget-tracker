@@ -36,10 +36,21 @@ class SmsTransactionService {
   static const _keyPattern = 'sms_tx_pattern';
   static const _keyAutoListenEnabled = 'sms_auto_listen_enabled';
 
-  // Default BML pattern
+  // Default BML pattern (groups: date, time, currency, amount, merchant, refNo)
   static const defaultPattern =
       r'Transaction from \d+ on (\d{2}/\d{2}/\d{2}) at (\d{2}:\d{2}:\d{2}) for ([A-Z]+)([\d,.]+) at (.+?) was processed.*?Reference No:(\d+)';
   static const defaultSender = '455';
+
+  // IslamicBank pattern (groups: amount, currency, merchant, date, time, approvalCode)
+  // Handles POS PURCHASE, E-COMMERCE TRX, and other transaction types
+  static const islamicBankPattern =
+      r'Your (?:POS PURCHASE|E-COMMERCE TRX|PURCHASE|ATM WITHDRAWAL) from \S+ for ([\d,.]+) ([A-Z]+) at (.+?), \S+ on (\d{2}\.\d{2}\.\d{2}) (\d{2}:\d{2}) was processed successfully\. Approval Code: (\w+)';
+
+  // Built-in vendor patterns keyed by sender name (case-insensitive)
+  static const Map<String, String> vendorPatterns = {
+    '455': defaultPattern,
+    'islamicbank': islamicBankPattern,
+  };
 
   // ─── Settings persistence ──────────────────────────────────
 
@@ -118,14 +129,23 @@ class SmsTransactionService {
 
   // ─── Core logic ────────────────────────────────────────────
 
+  /// Build the list of all regex patterns to try (user custom + built-in vendor patterns).
+  static Future<List<RegExp>> _buildPatterns() async {
+    final userPattern = await getPattern();
+    final patterns = <String>{userPattern};
+    for (final p in vendorPatterns.values) {
+      patterns.add(p);
+    }
+    return patterns.map((p) => RegExp(p, dotAll: true)).toList();
+  }
+
   /// Request SMS permission and read bank transactions.
   static Future<List<ParsedSmsTransaction>> fetchBankTransactions() async {
     final status = await Permission.sms.request();
     if (!status.isGranted) return [];
 
     final senders = await getSenders();
-    final patternStr = await getPattern();
-    final pattern = RegExp(patternStr, dotAll: true);
+    final patterns = await _buildPatterns();
 
     final allMessages = <dynamic>[];
     for (final sender in senders) {
@@ -139,7 +159,7 @@ class SmsTransactionService {
     for (final msg in allMessages) {
       final body = msg['body'] as String? ?? '';
       final sender = (msg['address'] as String? ?? '').toUpperCase();
-      final tx = _parseSms(body, pattern);
+      final tx = _parseSmsMulti(body, patterns);
       if (tx == null) continue;
 
       final dedupeKey = '$sender|${tx.referenceNo}|${tx.date.toIso8601String()}';
@@ -150,11 +170,10 @@ class SmsTransactionService {
     return parsed;
   }
 
-  /// Parse a single SMS body using current configured regex pattern.
+  /// Parse a single SMS body using all known patterns.
   static Future<ParsedSmsTransaction?> parseBodyWithCurrentPattern(String body) async {
-    final patternStr = await getPattern();
-    final pattern = RegExp(patternStr, dotAll: true);
-    return _parseSms(body, pattern);
+    final patterns = await _buildPatterns();
+    return _parseSmsMulti(body, patterns);
   }
 
   /// Whether an incoming SMS sender matches configured sender rule.
@@ -174,10 +193,27 @@ class SmsTransactionService {
       incoming.endsWith(configured));
   }
 
+  /// Try all known patterns against the body and return the first match.
+  static ParsedSmsTransaction? _parseSmsMulti(String body, List<RegExp> patterns) {
+    for (final pattern in patterns) {
+      final result = _parseSms(body, pattern);
+      if (result != null) return result;
+    }
+    return null;
+  }
+
   static ParsedSmsTransaction? _parseSms(String body, RegExp pattern) {
     final match = pattern.firstMatch(body);
     if (match == null || match.groupCount < 6) return null;
 
+    final patternStr = pattern.pattern;
+
+    // IslamicBank format: amount, currency, merchant, date(DD.MM.YY), time(HH:MM), approvalCode
+    if (patternStr == islamicBankPattern) {
+      return _parseIslamicBank(match, body);
+    }
+
+    // Default BML format: date, time, currency, amount, merchant, refNo
     final dateStr = match.group(1)!;
     final timeStr = match.group(2)!;
     final currency = match.group(3)!;
@@ -207,6 +243,39 @@ class SmsTransactionService {
       merchant: merchant,
       date: date,
       referenceNo: refNo,
+      smsBody: body,
+    );
+  }
+
+  static ParsedSmsTransaction? _parseIslamicBank(RegExpMatch match, String body) {
+    final amountStr = match.group(1)!.replaceAll(',', '');
+    final currency = match.group(2)!;
+    final merchant = match.group(3)!.trim();
+    final dateStr = match.group(4)!; // DD.MM.YY
+    final timeStr = match.group(5)!; // HH:MM
+    final approvalCode = match.group(6)!;
+
+    final dp = dateStr.split('.');
+    final tp = timeStr.split(':');
+    if (dp.length < 3 || tp.length < 2) return null;
+
+    final date = DateTime(
+      2000 + int.parse(dp[2]),
+      int.parse(dp[1]),
+      int.parse(dp[0]),
+      int.parse(tp[0]),
+      int.parse(tp[1]),
+    );
+
+    final amount = double.tryParse(amountStr);
+    if (amount == null || amount <= 0) return null;
+
+    return ParsedSmsTransaction(
+      currency: currency,
+      amount: amount,
+      merchant: merchant,
+      date: date,
+      referenceNo: approvalCode,
       smsBody: body,
     );
   }
