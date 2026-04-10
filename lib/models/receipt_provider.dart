@@ -5,6 +5,8 @@ import 'receipt_model.dart';
 class ReceiptProvider extends ChangeNotifier {
   List<Receipt> _receipts = [];
   bool _isLoading = true;
+  final HiveAesCipher? _cipher;
+  late Box<Receipt> _box;
 
   List<Receipt> get receipts => List.unmodifiable(_receipts);
   bool get isLoading => _isLoading;
@@ -40,7 +42,7 @@ class ReceiptProvider extends ChangeNotifier {
     return map;
   }
 
-  ReceiptProvider() {
+  ReceiptProvider({HiveAesCipher? cipher}) : _cipher = cipher {
     _init();
   }
 
@@ -48,23 +50,49 @@ class ReceiptProvider extends ChangeNotifier {
     if (!Hive.isAdapterRegistered(2)) {
       Hive.registerAdapter(ReceiptAdapter());
     }
-    final box = await Hive.openBox<Receipt>('receipts_v1');
-    _receipts = box.values.toList()
+    await _migrateToEncrypted<Receipt>('receipts_v1');
+    _box = await Hive.openBox<Receipt>('receipts_v1',
+        encryptionCipher: _cipher);
+    _receipts = _box.values.toList()
       ..sort((a, b) => b.date.compareTo(a.date));
     _isLoading = false;
     notifyListeners();
   }
 
+  /// One-time migration: read unencrypted data, delete box, re-write encrypted.
+  Future<void> _migrateToEncrypted<T>(String boxName) async {
+    if (_cipher == null) return;
+    if (Hive.isBoxOpen(boxName)) return;
+    try {
+      final plain = await Hive.openBox<T>(boxName);
+      if (plain.isEmpty) {
+        await plain.close();
+        return;
+      }
+      final keys = plain.keys.toList();
+      final values = plain.values.toList();
+      await plain.close();
+      await Hive.deleteBoxFromDisk(boxName);
+      final encrypted = await Hive.openBox<T>(boxName,
+          encryptionCipher: _cipher);
+      for (int i = 0; i < keys.length; i++) {
+        await encrypted.put(keys[i], values[i]);
+      }
+      await encrypted.close();
+    } catch (_) {
+      // Box may already be encrypted — nothing to migrate.
+    }
+  }
+
   Future<void> addReceipt(Receipt receipt) async {
-    final box = Hive.box<Receipt>('receipts_v1');
-    await box.put(receipt.id, receipt);
+    await _box.put(receipt.id, receipt);
     _receipts.insert(0, receipt);
+    _receipts.sort((a, b) => b.date.compareTo(a.date));
     notifyListeners();
   }
 
   Future<void> deleteReceipt(String id) async {
-    final box = Hive.box<Receipt>('receipts_v1');
-    await box.delete(id);
+    await _box.delete(id);
     _receipts.removeWhere((r) => r.id == id);
     notifyListeners();
   }

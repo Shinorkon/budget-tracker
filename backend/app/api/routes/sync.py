@@ -6,11 +6,12 @@ and receives all server-side changes since that timestamp.
 from datetime import datetime, timezone
 from typing import Optional
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from pydantic import BaseModel
 from app.core.db import get_db
+from app.core.limiter import limiter
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.category import Category
@@ -67,6 +68,8 @@ class SyncRequest(BaseModel):
     categories: list[CategorySync] = []
     transactions: list[TransactionSync] = []
     receipts: list[ReceiptSync] = []
+    page: int = 1
+    per_page: int = 500
 
 
 class SyncResponse(BaseModel):
@@ -74,12 +77,15 @@ class SyncResponse(BaseModel):
     categories: list[CategorySync]
     transactions: list[TransactionSync]
     receipts: list[ReceiptSync]
+    has_more: bool = False
 
 
 # ─── Endpoint ─────────────────────────────────────────────────
 
 @router.post("", response_model=SyncResponse)
+@limiter.limit("30/minute")
 def sync(
+    request: Request,
     req: SyncRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -121,6 +127,14 @@ def sync(
                     status_code=400,
                     detail=f"Invalid category data: {str(e)}"
                 )
+
+        # Flush so that FK validation for transactions can find newly-added categories
+        try:
+            db.flush()
+        except (IntegrityError, SQLAlchemyError) as e:
+            db.rollback()
+            logger.error(f"Category flush error for user {user.id}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Invalid category data: {str(e)}")
 
         for t in req.transactions:
             try:
@@ -194,6 +208,14 @@ def sync(
                     detail=f"Invalid transaction data: {str(e)}"
                 )
 
+        # Flush so that FK validation for receipts can find newly-added transactions
+        try:
+            db.flush()
+        except (IntegrityError, SQLAlchemyError) as e:
+            db.rollback()
+            logger.error(f"Transaction flush error for user {user.id}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Invalid transaction data: {str(e)}")
+
         for r in req.receipts:
             try:
                 # Validate foreign keys if specified
@@ -266,24 +288,32 @@ def sync(
                 detail=f"Failed to save changes: {str(e)}"
             )
 
-        # ── Pull: return server changes since last_synced_at ─────
+        # ── Pull: return server changes since last_synced_at (paginated) ─
+        offset = (req.page - 1) * req.per_page
+
         server_cats = db.query(Category).filter(
             Category.user_id == user.id,
             Category.updated_at > since,
-        ).all()
+        ).order_by(Category.updated_at).all()
 
         server_txns = db.query(Transaction).filter(
             Transaction.user_id == user.id,
             Transaction.updated_at > since,
-        ).all()
+        ).order_by(Transaction.updated_at).offset(offset).limit(req.per_page + 1).all()
 
         server_rcpts = db.query(Receipt).filter(
             Receipt.user_id == user.id,
             Receipt.updated_at > since,
-        ).all()
+        ).order_by(Receipt.updated_at).all()
+
+        # Check if there are more transactions beyond this page
+        has_more = len(server_txns) > req.per_page
+        if has_more:
+            server_txns = server_txns[:req.per_page]
 
         return SyncResponse(
             server_time=now,
+            has_more=has_more,
             categories=[
                 CategorySync(
                     id=c.id, name=c.name, icon_code=c.icon_code,

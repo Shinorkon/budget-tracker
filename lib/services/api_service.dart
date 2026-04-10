@@ -1,9 +1,15 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String _baseUrl = 'http://37.60.229.74:8001';
+  // Switch to your HTTPS domain once Caddy is deployed.
+  // e.g. 'https://budgy.yourdomain.com'
+  static const String _baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://37.60.229.74:8001',
+  );
 
   String get baseUrl => _baseUrl;
 
@@ -103,7 +109,9 @@ class ApiService {
         await saveTokens(data['access_token'], data['refresh_token']);
         return true;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('ApiService: token refresh failed: $e');
+    }
 
     await clearTokens();
     return false;
@@ -131,7 +139,7 @@ class ApiService {
       await saveTokens(data['access_token'], data['refresh_token']);
       return data;
     }
-    throw Exception(jsonDecode(response.body)['detail'] ?? 'Registration failed');
+    throw Exception(_extractDetail(response.body, 'Registration failed'));
   }
 
   Future<Map<String, dynamic>> login(String email, String password) async {
@@ -146,7 +154,7 @@ class ApiService {
       await saveTokens(data['access_token'], data['refresh_token']);
       return data;
     }
-    throw Exception(jsonDecode(response.body)['detail'] ?? 'Login failed');
+    throw Exception(_extractDetail(response.body, 'Login failed'));
   }
 
   Future<Map<String, dynamic>> me() async {
@@ -154,9 +162,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
-    throw Exception(
-      jsonDecode(response.body)['detail'] ?? 'Failed to load account details',
-    );
+    throw Exception(_extractDetail(response.body, 'Failed to load account details'));
   }
 
   Future<Map<String, dynamic>> updateCurrency(String currency) async {
@@ -168,12 +174,38 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
-    throw Exception(
-      jsonDecode(response.body)['detail'] ?? 'Failed to update currency',
-    );
+    throw Exception(_extractDetail(response.body, 'Failed to update currency'));
   }
 
   Future<void> logout() async {
+    // Revoke server-side refresh tokens, then clear local state.
+    try {
+      await authenticatedRequest('POST', '/api/auth/logout');
+    } catch (_) {
+      // Best-effort: if the server is unreachable we still clear locally.
+    }
     await clearTokens();
+  }
+
+  Future<void> changePassword(String oldPassword, String newPassword) async {
+    final response = await authenticatedRequest(
+      'POST',
+      '/api/auth/change-password',
+      body: {'old_password': oldPassword, 'new_password': newPassword},
+    );
+    if (response.statusCode != 204) {
+      throw Exception(_extractDetail(response.body, 'Failed to change password'));
+    }
+  }
+
+  /// Safely extract `detail` from a JSON error body, falling back to [fallback].
+  static String _extractDetail(String body, String fallback) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map && decoded['detail'] != null) {
+        return decoded['detail'].toString();
+      }
+    } catch (_) {}
+    return fallback;
   }
 }

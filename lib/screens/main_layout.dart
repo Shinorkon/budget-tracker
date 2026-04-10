@@ -69,10 +69,10 @@ class _MainLayoutState extends State<MainLayout> {
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: AppColors.surface,
+          color: Theme.of(context).colorScheme.surface,
           border: Border(
             top: BorderSide(
-              color: AppColors.border.withValues(alpha: 0.5),
+              color: Theme.of(context).dividerColor.withValues(alpha: 0.5),
               width: 1,
             ),
           ),
@@ -98,6 +98,7 @@ class _MainLayoutState extends State<MainLayout> {
 
   Widget _buildNavItem(int index, IconData icon, String label) {
     final isSelected = _currentIndex == index;
+    final mutedColor = Theme.of(context).textTheme.bodySmall?.color ?? AppColors.textMuted;
     return GestureDetector(
       onTap: () => _onTabChanged(index),
       behavior: HitTestBehavior.opaque,
@@ -118,7 +119,7 @@ class _MainLayoutState extends State<MainLayout> {
                   : null,
               child: Icon(
                 icon,
-                color: isSelected ? AppColors.primary : AppColors.textMuted,
+                color: isSelected ? AppColors.primary : mutedColor,
                 size: 22,
               ),
             ),
@@ -126,7 +127,7 @@ class _MainLayoutState extends State<MainLayout> {
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? AppColors.primary : AppColors.textMuted,
+                color: isSelected ? AppColors.primary : mutedColor,
                 fontSize: 11,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
               ),
@@ -203,9 +204,9 @@ class _AddTransactionSheetState extends State<AddTransactionSheet>
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.85,
       ),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

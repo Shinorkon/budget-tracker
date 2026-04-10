@@ -62,6 +62,8 @@ class CategoryAdapter extends TypeAdapter<Category> {
   }
 }
 
+const _sentinel = Object();
+
 // ─── Transaction ──────────────────────────────────────────────
 enum TransactionType { expense, income }
 
@@ -94,7 +96,7 @@ class Transaction extends HiveObject {
   String? get imagePathOrNull => imagePath.isEmpty ? null : imagePath;
 
   Transaction copyWith({
-    String? categoryId,
+    Object? categoryId = _sentinel,
     double? amount,
     DateTime? date,
     String? note,
@@ -102,11 +104,13 @@ class Transaction extends HiveObject {
     String? storeName,
     String? imagePath,
     String? currency,
-    double? exchangeRate,
+    Object? exchangeRate = _sentinel,
   }) {
     return Transaction(
       id: id,
-      categoryId: categoryId ?? this.categoryId,
+      categoryId: identical(categoryId, _sentinel)
+          ? this.categoryId
+          : categoryId as String?,
       amount: amount ?? this.amount,
       date: date ?? this.date,
       note: note ?? this.note,
@@ -114,7 +118,9 @@ class Transaction extends HiveObject {
       storeName: storeName ?? this.storeName,
       imagePath: imagePath ?? this.imagePath,
       currency: currency ?? this.currency,
-      exchangeRate: exchangeRate ?? this.exchangeRate,
+      exchangeRate: identical(exchangeRate, _sentinel)
+          ? this.exchangeRate
+          : exchangeRate as double?,
     );
   }
 }
@@ -126,7 +132,8 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
   @override
   Transaction read(BinaryReader reader) {
     final id = reader.readString();
-    final categoryId = reader.readString();
+    final rawCategoryId = reader.readString();
+    final categoryId = rawCategoryId.isEmpty ? null : rawCategoryId;
     final amount = reader.readDouble();
     final date = DateTime.fromMillisecondsSinceEpoch(reader.readInt());
     final note = reader.readString();

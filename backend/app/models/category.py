@@ -8,8 +8,8 @@ class Category(Base):
     __tablename__ = "categories"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    name = Column(String, nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
     icon_code = Column(Integer, nullable=False)
     color_value = Column(Integer, nullable=False)
     budget_limit = Column(Float, default=0)
@@ -22,3 +22,4 @@ class Category(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+    version = Column(Integer, default=1)

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
 import 'budget_model.dart';
+import '../services/currency_util.dart';
 
 const _uuid = Uuid();
 
@@ -11,6 +13,9 @@ class BudgetProvider extends ChangeNotifier {
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   String _currency = 'MVR';
   bool _isLoading = true;
+  late Box<Category> _catBox;
+  late Box<Transaction> _txBox;
+  final HiveAesCipher? _cipher;
 
   // Getters
   List<Category> get categories => List.unmodifiable(_categories);
@@ -37,7 +42,7 @@ class BudgetProvider extends ChangeNotifier {
     return '${monthNames[_selectedMonth.month - 1]} ${_selectedMonth.year}';
   }
 
-  BudgetProvider() {
+  BudgetProvider({HiveAesCipher? cipher}) : _cipher = cipher {
     _init();
   }
 
@@ -49,11 +54,17 @@ class BudgetProvider extends ChangeNotifier {
       Hive.registerAdapter(TransactionAdapter());
     }
 
-    final catBox = await Hive.openBox<Category>('categories_v2');
-    final txBox = await Hive.openBox<Transaction>('transactions_v2');
+    // Migrate unencrypted boxes to encrypted on first run.
+    await _migrateToEncrypted<Category>('categories_v2');
+    await _migrateToEncrypted<Transaction>('transactions_v2');
 
-    _categories = catBox.values.toList();
-    _transactions = txBox.values.toList();
+    _catBox = await Hive.openBox<Category>('categories_v2',
+        encryptionCipher: _cipher);
+    _txBox = await Hive.openBox<Transaction>('transactions_v2',
+        encryptionCipher: _cipher);
+
+    _categories = _catBox.values.toList();
+    _transactions = _txBox.values.toList();
 
     // Add default categories if none exist
     if (_categories.isEmpty) {
@@ -62,6 +73,34 @@ class BudgetProvider extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  /// One-time migration: if an unencrypted box exists and encryption is enabled,
+  /// read all data, delete the old box, and re-write encrypted.
+  Future<void> _migrateToEncrypted<T>(String boxName) async {
+    if (_cipher == null) return;
+    // If the box is already open (encrypted), skip.
+    if (Hive.isBoxOpen(boxName)) return;
+    try {
+      // Try opening without encryption — if it works, data is unencrypted.
+      final plain = await Hive.openBox<T>(boxName);
+      if (plain.isEmpty) {
+        await plain.close();
+        return;
+      }
+      final entries = plain.values.toList();
+      await plain.close();
+      await Hive.deleteBoxFromDisk(boxName);
+      // Re-create with encryption.
+      final encrypted = await Hive.openBox<T>(boxName,
+          encryptionCipher: _cipher);
+      for (final entry in entries) {
+        await encrypted.add(entry);
+      }
+      await encrypted.close();
+    } catch (_) {
+      // Box may already be encrypted — that's fine, nothing to migrate.
+    }
   }
 
   Future<void> _addDefaultCategories() async {
@@ -104,10 +143,9 @@ class BudgetProvider extends ChangeNotifier {
           budgetLimit: 0),
     ];
 
-    final box = await Hive.openBox<Category>('categories_v2');
     for (final cat in defaults) {
       _categories.add(cat);
-      await box.add(cat);
+      await _catBox.add(cat);
     }
   }
 
@@ -269,8 +307,7 @@ class BudgetProvider extends ChangeNotifier {
   // ─── CRUD: Category ────────────────────────────────────────
   Future<void> addCategory(Category category) async {
     _categories.add(category);
-    final box = await Hive.openBox<Category>('categories_v2');
-    await box.add(category);
+    await _catBox.add(category);
     notifyListeners();
   }
 
@@ -278,8 +315,7 @@ class BudgetProvider extends ChangeNotifier {
     final index = _categories.indexWhere((c) => c.id == id);
     if (index == -1) return;
     _categories[index] = updated;
-    final box = await Hive.openBox<Category>('categories_v2');
-    await box.putAt(index, updated);
+    await _catBox.putAt(index, updated);
     notifyListeners();
   }
 
@@ -287,27 +323,28 @@ class BudgetProvider extends ChangeNotifier {
     final index = _categories.indexWhere((c) => c.id == id);
     if (index == -1) return;
     _categories.removeAt(index);
-    final box = await Hive.openBox<Category>('categories_v2');
-    await box.deleteAt(index);
-    // Also remove transactions for this category
-    _transactions.removeWhere((t) => t.categoryId == id);
-    final txBox = await Hive.openBox<Transaction>('transactions_v2');
-    await txBox.clear();
-    for (final t in _transactions) {
-      await txBox.add(t);
+    await _catBox.deleteAt(index);
+    // Nullify categoryId on orphaned transactions instead of deleting them
+    for (int i = 0; i < _transactions.length; i++) {
+      if (_transactions[i].categoryId == id) {
+        final updated = _transactions[i].copyWith(categoryId: null);
+        _transactions[i] = updated;
+        await _txBox.putAt(i, updated);
+      }
     }
     notifyListeners();
   }
 
   // ─── CRUD: Transaction ─────────────────────────────────────
   Future<void> addTransaction(Transaction transaction) async {
+    // Duplicate check and list insert must be synchronous (no await between)
+    // to prevent interleaved calls from passing the same check.
     if (isDuplicateTransaction(transaction)) {
       return;
     }
     _transactions.add(transaction);
-    final box = await Hive.openBox<Transaction>('transactions_v2');
-    await box.add(transaction);
     notifyListeners();
+    await _txBox.add(transaction);
   }
 
   bool isDuplicateTransaction(Transaction incoming) {
@@ -327,7 +364,8 @@ class BudgetProvider extends ChangeNotifier {
       final sameType = existing.type == incoming.type;
       final sameStore = _normalizeStore(existing.storeName) ==
           _normalizeStore(incoming.storeName);
-      final closeAmount = (existing.amount - incoming.amount).abs() <= 0.01;
+      final tol = CurrencyUtil.tolerance(incoming.currency);
+      final closeAmount = (existing.amount - incoming.amount).abs() <= tol;
       final closeTime =
           (existing.date.difference(incoming.date).inMinutes).abs() <= 2;
 
@@ -397,8 +435,7 @@ class BudgetProvider extends ChangeNotifier {
     final index = _transactions.indexWhere((t) => t.id == id);
     if (index == -1) return;
     _transactions[index] = updated;
-    final box = await Hive.openBox<Transaction>('transactions_v2');
-    await box.putAt(index, updated);
+    await _txBox.putAt(index, updated);
     notifyListeners();
   }
 
@@ -406,8 +443,7 @@ class BudgetProvider extends ChangeNotifier {
     final index = _transactions.indexWhere((t) => t.id == id);
     if (index == -1) return;
     _transactions.removeAt(index);
-    final box = await Hive.openBox<Transaction>('transactions_v2');
-    await box.deleteAt(index);
+    await _txBox.deleteAt(index);
     notifyListeners();
   }
 
@@ -415,10 +451,8 @@ class BudgetProvider extends ChangeNotifier {
   Future<void> clearAllData() async {
     _categories.clear();
     _transactions.clear();
-    final catBox = await Hive.openBox<Category>('categories_v2');
-    final txBox = await Hive.openBox<Transaction>('transactions_v2');
-    await catBox.clear();
-    await txBox.clear();
+    await _catBox.clear();
+    await _txBox.clear();
     await _addDefaultCategories();
     notifyListeners();
   }

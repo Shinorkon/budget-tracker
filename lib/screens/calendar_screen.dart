@@ -41,11 +41,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
         .fold(0.0, (sum, t) => sum + t.amount);
 
     return Scaffold(
-      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: const Text('Calendar'),
-        backgroundColor: AppColors.background,
-        elevation: 0,
       ),
       body: Column(
         children: [
@@ -53,9 +50,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              color: AppColors.surface,
+              color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border.withValues(alpha: 0.3)),
+              border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
             ),
             child: TableCalendar<Transaction>(
               firstDay: DateTime(2020),
@@ -86,12 +83,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   color: AppColors.primary,
                   shape: BoxShape.circle,
                 ),
-                defaultTextStyle:
-                    const TextStyle(color: AppColors.textPrimary),
-                weekendTextStyle:
-                    const TextStyle(color: AppColors.textSecondary),
-                todayTextStyle: const TextStyle(
-                    color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                defaultTextStyle: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface),
+                weekendTextStyle: TextStyle(
+                    color: Theme.of(context).textTheme.bodyMedium?.color),
+                todayTextStyle: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.w600),
                 selectedTextStyle: const TextStyle(
                     color: Colors.white, fontWeight: FontWeight.w600),
                 markerDecoration: const BoxDecoration(
@@ -102,26 +100,26 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 markersMaxCount: 3,
                 markerMargin: const EdgeInsets.symmetric(horizontal: 1),
               ),
-              headerStyle: const HeaderStyle(
+              headerStyle: HeaderStyle(
                 formatButtonVisible: false,
                 titleCentered: true,
                 titleTextStyle: TextStyle(
-                  color: AppColors.textPrimary,
+                  color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                 ),
                 leftChevronIcon: Icon(Icons.chevron_left_rounded,
-                    color: AppColors.textPrimary),
+                    color: Theme.of(context).colorScheme.onSurface),
                 rightChevronIcon: Icon(Icons.chevron_right_rounded,
-                    color: AppColors.textPrimary),
+                    color: Theme.of(context).colorScheme.onSurface),
               ),
-              daysOfWeekStyle: const DaysOfWeekStyle(
+              daysOfWeekStyle: DaysOfWeekStyle(
                 weekdayStyle: TextStyle(
-                    color: AppColors.textMuted,
+                    color: Theme.of(context).textTheme.bodySmall?.color,
                     fontSize: 12,
                     fontWeight: FontWeight.w500),
                 weekendStyle: TextStyle(
-                    color: AppColors.textMuted,
+                    color: Theme.of(context).textTheme.bodySmall?.color,
                     fontSize: 12,
                     fontWeight: FontWeight.w500),
               ),
@@ -165,13 +163,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.event_note_rounded,
-                            color: AppColors.textMuted.withValues(alpha: 0.4),
+                            color: Theme.of(context).textTheme.bodySmall?.color?.withValues(alpha: 0.4),
                             size: 48),
                         const SizedBox(height: 8),
-                        const Text(
+                        Text(
                           'No transactions this day',
                           style: TextStyle(
-                              color: AppColors.textMuted, fontSize: 14),
+                              color: Theme.of(context).textTheme.bodySmall?.color, fontSize: 14),
                         ),
                       ],
                     ),

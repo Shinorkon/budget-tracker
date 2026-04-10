@@ -1,0 +1,10 @@
+# Replace budgy.yourdomain.com with your actual domain.
+# Point the domain's DNS A record to 37.60.229.74 and Caddy will
+# auto-provision a Let's Encrypt TLS certificate.
+#
+# If you don't have a domain, use Cloudflare Tunnel or swap this
+# for a self-signed cert block.
+
+{$BUDGY_DOMAIN:budgy.yourdomain.com} {
+    reverse_proxy backend:8000
+}

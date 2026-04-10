@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Float, Integer, DateTime, ForeignKey, Text
 from app.core.db import Base
 
 
@@ -8,8 +8,8 @@ class Receipt(Base):
     __tablename__ = "receipts"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    store_name = Column(String, nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    store_name = Column(String(255), nullable=False)
     date = Column(DateTime(timezone=True), nullable=False)
     total = Column(Float, nullable=False)
     category_id = Column(String, default="")
@@ -25,3 +25,4 @@ class Receipt(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
+    version = Column(Integer, default=1)

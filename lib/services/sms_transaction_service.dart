@@ -102,9 +102,18 @@ class SmsTransactionService {
     return prefs.getString(_keyPattern) ?? defaultPattern;
   }
 
-  static Future<void> setPattern(String pattern) async {
+  /// Saves the SMS regex pattern after validating it compiles.
+  /// Returns true on success, false if the pattern is invalid.
+  static Future<bool> setPattern(String pattern) async {
+    final trimmed = pattern.trim();
+    try {
+      RegExp(trimmed, dotAll: true);
+    } catch (_) {
+      return false;
+    }
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyPattern, pattern.trim());
+    await prefs.setString(_keyPattern, trimmed);
+    return true;
   }
 
   // ─── Core logic ────────────────────────────────────────────
@@ -129,10 +138,11 @@ class SmsTransactionService {
     final seenRefs = <String>{};
     for (final msg in allMessages) {
       final body = msg['body'] as String? ?? '';
+      final sender = (msg['address'] as String? ?? '').toUpperCase();
       final tx = _parseSms(body, pattern);
       if (tx == null) continue;
 
-      final dedupeKey = '${tx.referenceNo}|${tx.date.toIso8601String()}';
+      final dedupeKey = '$sender|${tx.referenceNo}|${tx.date.toIso8601String()}';
       if (seenRefs.contains(dedupeKey)) continue;
       seenRefs.add(dedupeKey);
       parsed.add(tx);
@@ -160,8 +170,8 @@ class SmsTransactionService {
 
     return configuredSenders.any((configured) =>
       incoming == configured ||
-      incoming.contains(configured) ||
-      configured.contains(incoming));
+      incoming.startsWith(configured) ||
+      incoming.endsWith(configured));
   }
 
   static ParsedSmsTransaction? _parseSms(String body, RegExp pattern) {

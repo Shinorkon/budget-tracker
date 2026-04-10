@@ -267,7 +267,14 @@ class _AuthScreenState extends State<AuthScreen>
 
       widget.onAuthenticated();
     } catch (e) {
-      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      setState(() => _error = msg.contains('SocketException') || msg.contains('Connection')
+          ? 'Could not connect to server. Check your internet connection.'
+          : msg.contains('401') || msg.contains('Invalid credentials')
+          ? 'Incorrect email or password.'
+          : msg.contains('409')
+          ? 'Account already exists with that email or username.'
+          : 'Something went wrong. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

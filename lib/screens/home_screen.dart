@@ -28,7 +28,6 @@ class HomeScreen extends StatelessWidget {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.background,
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
@@ -109,8 +108,10 @@ class HomeScreen extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF1A1F35), Color(0xFF151929)],
+                    gradient: LinearGradient(
+                      colors: Theme.of(context).brightness == Brightness.dark
+                          ? [const Color(0xFF1A1F35), const Color(0xFF151929)]
+                          : [const Color(0xFFEEF1F8), const Color(0xFFE8EBF5)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -425,11 +426,11 @@ class _MonthArrowButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: AppColors.surfaceLight,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(color: Theme.of(context).dividerColor),
         ),
-        child: Icon(icon, color: AppColors.textPrimary, size: 20),
+        child: Icon(icon, color: Theme.of(context).colorScheme.onSurface, size: 20),
       ),
     );
   }
@@ -516,15 +517,17 @@ class _CategoryCard extends StatelessWidget {
         hasLimit ? (spent / category.budgetLimit).clamp(0.0, 1.0) : 0.0;
     final isOverBudget = hasLimit && spent > category.budgetLimit;
 
+    final theme = Theme.of(context);
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: isOverBudget
               ? AppColors.expense.withValues(alpha: 0.5)
-              : AppColors.border.withValues(alpha: 0.5),
+              : theme.dividerColor.withValues(alpha: 0.5),
         ),
       ),
       child: Column(
@@ -544,8 +547,8 @@ class _CategoryCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   category.name,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
                   ),
@@ -563,7 +566,7 @@ class _CategoryCard extends StatelessWidget {
           Text(
             formatCurrencyShort(spent, currency),
             style: TextStyle(
-              color: isOverBudget ? AppColors.expense : AppColors.textPrimary,
+              color: isOverBudget ? AppColors.expense : theme.colorScheme.onSurface,
               fontWeight: FontWeight.w700,
               fontSize: 16,
             ),
@@ -574,7 +577,7 @@ class _CategoryCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 value: progress,
-                backgroundColor: AppColors.surfaceHighlight,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
                 valueColor: AlwaysStoppedAnimation(
                   isOverBudget ? AppColors.expense : category.color,
                 ),
@@ -634,8 +637,8 @@ class _TransactionTile extends StatelessWidget {
               children: [
                 Text(
                   isIncome ? 'Income' : (category?.name ?? 'Expense'),
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurface,
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
                   ),
@@ -646,8 +649,8 @@ class _TransactionTile extends StatelessWidget {
                       ? transaction.note
                       : transaction.storeNameOrNull ??
                           formatDateShort(transaction.date),
-                  style: const TextStyle(
-                    color: AppColors.textMuted,
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
                     fontSize: 12,
                   ),
                 ),
@@ -745,9 +748,9 @@ class _EditTransactionSheetState extends State<_EditTransactionSheet> {
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.85,
       ),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -758,7 +761,7 @@ class _EditTransactionSheetState extends State<_EditTransactionSheet> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: AppColors.textMuted,
+              color: Theme.of(context).textTheme.bodySmall?.color,
               borderRadius: BorderRadius.circular(2),
             ),
           ),

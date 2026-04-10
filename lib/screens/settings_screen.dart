@@ -6,6 +6,7 @@ import '../models/budget_provider.dart';
 import '../models/receipt_provider.dart';
 import '../services/api_service.dart';
 import '../services/sync_service.dart';
+import '../models/theme_provider.dart';
 import '../services/sms_transaction_service.dart';
 import '../services/live_sms_listener_service.dart';
 import 'auth_screen.dart';
@@ -15,6 +16,7 @@ import 'price_search_screen.dart';
 import 'stores_screen.dart';
 import 'items_screen.dart';
 import 'sms_import_screen.dart';
+import 'lock_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -47,8 +49,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final budget = Provider.of<BudgetProvider>(context);
     final receiptProvider = Provider.of<ReceiptProvider>(context);
 
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
       body: SafeArea(
         child: CustomScrollView(
           slivers: [
@@ -72,10 +75,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: colorScheme.surface,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                        color: AppColors.border.withValues(alpha: 0.3)),
+                        color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
                   ),
                   child: Column(
                     children: [
@@ -97,6 +100,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             MaterialPageRoute(
                               builder: (_) => const CategoriesScreen(),
                             ),
+                          );
+                        },
+                      ),
+                      _divider(),
+                      Consumer<ThemeProvider>(
+                        builder: (context, themeProvider, _) {
+                          return _SettingsTile(
+                            icon: themeProvider.isDark
+                                ? Icons.dark_mode_rounded
+                                : Icons.light_mode_rounded,
+                            iconColor: themeProvider.isDark
+                                ? AppColors.accent
+                                : AppColors.warning,
+                            title: 'Theme',
+                            subtitle: themeProvider.isDark ? 'Dark' : 'Light',
+                            trailing: Switch.adaptive(
+                              value: themeProvider.isDark,
+                              activeTrackColor: AppColors.primary,
+                              onChanged: (_) => themeProvider.toggle(),
+                            ),
+                            onTap: () => themeProvider.toggle(),
                           );
                         },
                       ),
@@ -177,6 +201,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
 
+            // ─── Security section ──────────────────────────────
+            SliverToBoxAdapter(
+              child: _SectionHeader(title: 'Security'),
+            ),
+
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: colorScheme.surface,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                        color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
+                  ),
+                  child: FutureBuilder<bool>(
+                    future: BiometricPrefs.isEnabled(),
+                    builder: (context, snapshot) {
+                      final enabled = snapshot.data ?? false;
+                      return _SettingsTile(
+                        icon: Icons.fingerprint_rounded,
+                        iconColor: AppColors.primary,
+                        title: 'Biometric Lock',
+                        subtitle: enabled ? 'Enabled' : 'Disabled',
+                        trailing: Switch.adaptive(
+                          value: enabled,
+                          activeTrackColor: AppColors.primary,
+                          onChanged: (val) async {
+                            await BiometricPrefs.setEnabled(val);
+                            setState(() {});
+                          },
+                        ),
+                        onTap: () async {
+                          await BiometricPrefs.setEnabled(!enabled);
+                          setState(() {});
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+
             // ─── Intelligence section ──────────────────────────
             SliverToBoxAdapter(
               child: _SectionHeader(title: 'Intelligence'),
@@ -187,10 +254,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: colorScheme.surface,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                        color: AppColors.border.withValues(alpha: 0.3)),
+                        color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
                   ),
                   child: Column(
                     children: [
@@ -277,10 +344,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: colorScheme.surface,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                        color: AppColors.border.withValues(alpha: 0.3)),
+                        color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
                   ),
                   child: Column(
                     children: [
@@ -308,10 +375,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: AppColors.surface,
+                    color: colorScheme.surface,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                        color: AppColors.border.withValues(alpha: 0.3)),
+                        color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
                   ),
                   child: Column(
                     children: [
@@ -344,9 +411,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _divider() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Divider(color: AppColors.border.withValues(alpha: 0.3), height: 1),
+    return Builder(
+      builder: (context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Divider(color: Theme.of(context).dividerColor.withValues(alpha: 0.3), height: 1),
+      ),
     );
   }
 
@@ -375,9 +444,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         context: context,
         backgroundColor: Colors.transparent,
         builder: (sheetContext) => Container(
-          decoration: const BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          decoration: BoxDecoration(
+            color: Theme.of(sheetContext).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
           child: Column(
@@ -389,7 +458,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.textMuted,
+                    color: Theme.of(sheetContext).textTheme.bodySmall?.color,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -397,13 +466,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 18),
               Text(
                 'Account Connected',
-                style: Theme.of(context).textTheme.titleLarge,
+                style: Theme.of(sheetContext).textTheme.titleLarge,
               ),
               const SizedBox(height: 12),
-              _detailRow('Username', account['username']?.toString() ?? '-'),
-              _detailRow('Email', account['email']?.toString() ?? '-'),
-              _detailRow('Currency', account['currency']?.toString() ?? '-'),
+              _detailRow(sheetContext, 'Username', account['username']?.toString() ?? '-'),
+              _detailRow(sheetContext, 'Email', account['email']?.toString() ?? '-'),
+              _detailRow(sheetContext, 'Currency', account['currency']?.toString() ?? '-'),
               _detailRow(
+                sheetContext,
                 'Last Sync',
                 lastSyncedAt == null ? 'Never' : lastSyncedAt.toLocal().toString(),
               ),
@@ -458,7 +528,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Widget _detailRow(String label, String value) {
+  Widget _detailRow(BuildContext context, String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(
@@ -467,8 +537,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             width: 92,
             child: Text(
               label,
-              style: const TextStyle(
-                color: AppColors.textMuted,
+              style: TextStyle(
+                color: Theme.of(context).textTheme.bodySmall?.color,
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),
@@ -477,8 +547,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface,
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
               ),
@@ -508,14 +578,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     setState(() => _isSyncing = true);
-    final (success, error) = await SyncService(
+    final syncService = SyncService(
       api: _api,
       budgetProvider: budget,
       receiptProvider: receiptProvider,
-    ).sync();
+    );
+
+    // Show progress updates via snackbar
+    syncService.progress.addListener(() {
+      if (!mounted) return;
+      final p = syncService.progress.value;
+      if (p.state == SyncState.uploading || p.state == SyncState.downloading || p.state == SyncState.merging) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const SizedBox(
+                  width: 16, height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                ),
+                const SizedBox(width: 12),
+                Text(p.message ?? 'Syncing...'),
+              ],
+            ),
+            duration: const Duration(seconds: 30),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+      }
+    });
+
+    final (success, error) = await syncService.sync();
     if (!mounted) return;
 
     setState(() => _isSyncing = false);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(success ? 'Sync complete' : 'Sync failed: ${error ?? "Unknown error"}'),
@@ -556,10 +655,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        decoration: const BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      builder: (sheetCtx) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(sheetCtx).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -569,7 +668,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: AppColors.textMuted,
+                color: Theme.of(sheetCtx).textTheme.bodySmall?.color,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -583,15 +682,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: Text(
                   c.$1,
                   style: TextStyle(
-                    color:
-                        isSelected ? AppColors.primary : AppColors.textPrimary,
+                    color: isSelected
+                        ? AppColors.primary
+                        : Theme.of(sheetCtx).colorScheme.onSurface,
                     fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                   ),
                 ),
                 subtitle: Text(
                   c.$2,
-                  style:
-                      const TextStyle(color: AppColors.textMuted, fontSize: 12),
+                  style: TextStyle(
+                    color: Theme.of(sheetCtx).textTheme.bodySmall?.color,
+                    fontSize: 12,
+                  ),
                 ),
                 trailing: isSelected
                     ? const Icon(Icons.check_circle_rounded,
@@ -634,9 +736,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
           ),
           child: Container(
-            decoration: const BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: Theme.of(sheetContext).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             ),
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
             child: SingleChildScrollView(
@@ -649,7 +751,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       width: 40,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: AppColors.textMuted,
+                        color: Theme.of(sheetContext).textTheme.bodySmall?.color,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -657,47 +759,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 14),
                   Text(
                     'SMS Listener Configuration',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    style: Theme.of(sheetContext).textTheme.titleLarge,
                   ),
                   const SizedBox(height: 6),
-                  const Text(
+                  Text(
                     'Configure who to listen to and how transactions are parsed from SMS.',
-                    style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    style: TextStyle(color: Theme.of(sheetContext).textTheme.bodySmall?.color, fontSize: 12),
                   ),
                   const SizedBox(height: 18),
                   SwitchListTile(
                     value: autoListen,
                     activeThumbColor: AppColors.income,
                     contentPadding: EdgeInsets.zero,
-                    title: const Text(
+                    title: Text(
                       'Enable Live SMS Listener',
-                      style: TextStyle(color: AppColors.textPrimary),
+                      style: TextStyle(color: Theme.of(sheetContext).colorScheme.onSurface),
                     ),
-                    subtitle: const Text(
+                    subtitle: Text(
                       'Automatically process incoming SMS in real-time.',
-                      style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+                      style: TextStyle(color: Theme.of(sheetContext).textTheme.bodySmall?.color, fontSize: 12),
                     ),
                     onChanged: (v) => setSheetState(() => autoListen = v),
                   ),
                   const SizedBox(height: 10),
                   TextField(
                     controller: sendersCtrl,
-                    style: const TextStyle(color: AppColors.textPrimary),
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       labelText: 'Allowed Senders',
                       hintText: '455, BML, BANKNAME',
                       helperText: 'Comma-separated sender IDs or names.',
-                      helperStyle:
-                          const TextStyle(color: AppColors.textMuted, fontSize: 11),
-                      labelStyle:
-                          const TextStyle(color: AppColors.textSecondary),
-                      hintStyle: const TextStyle(color: AppColors.textMuted),
-                      filled: true,
-                      fillColor: AppColors.surfaceLight,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -705,19 +795,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     controller: patternCtrl,
                     maxLines: 4,
                     minLines: 3,
-                    style: const TextStyle(color: AppColors.textPrimary),
                     decoration: InputDecoration(
                       labelText: 'SMS Regex Pattern',
                       hintText: SmsTransactionService.defaultPattern,
-                      labelStyle:
-                          const TextStyle(color: AppColors.textSecondary),
-                      hintStyle: const TextStyle(color: AppColors.textMuted),
-                      filled: true,
-                      fillColor: AppColors.surfaceLight,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
                     ),
                   ),
                   const SizedBox(height: 18),
@@ -740,7 +820,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 .toList();
 
                             await SmsTransactionService.setSenders(senders);
-                            await SmsTransactionService.setPattern(patternCtrl.text);
+                            final patternValid = await SmsTransactionService.setPattern(patternCtrl.text);
+                            if (!patternValid) {
+                              if (!sheetContext.mounted) return;
+                              ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                SnackBar(
+                                  content: const Text('Invalid regex pattern. Settings not saved.'),
+                                  backgroundColor: Colors.red,
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
                             await SmsTransactionService.setAutoListenEnabled(autoListen);
 
                             if (autoListen) {
@@ -780,7 +874,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
@@ -790,9 +883,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text('Clear All Data'),
           ],
         ),
-        content: const Text(
+        content: Text(
           'This will permanently delete ALL your transactions, categories, and settings. This action cannot be undone.',
-          style: TextStyle(color: AppColors.textSecondary),
+          style: TextStyle(color: Theme.of(ctx).textTheme.bodyMedium?.color),
         ),
         actions: [
           TextButton(
@@ -832,8 +925,8 @@ class _SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 10),
       child: Text(
         title.toUpperCase(),
-        style: const TextStyle(
-          color: AppColors.textMuted,
+        style: TextStyle(
+          color: Theme.of(context).textTheme.bodySmall?.color,
           fontSize: 12,
           fontWeight: FontWeight.w700,
           letterSpacing: 1.5,
@@ -850,6 +943,7 @@ class _SettingsTile extends StatelessWidget {
   final String subtitle;
   final VoidCallback onTap;
   final bool isDestructive;
+  final Widget? trailing;
 
   const _SettingsTile({
     required this.icon,
@@ -858,6 +952,7 @@ class _SettingsTile extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
     this.isDestructive = false,
+    this.trailing,
   });
 
   @override
@@ -876,17 +971,22 @@ class _SettingsTile extends StatelessWidget {
       title: Text(
         title,
         style: TextStyle(
-          color: isDestructive ? AppColors.expense : AppColors.textPrimary,
+          color: isDestructive
+              ? AppColors.expense
+              : Theme.of(context).colorScheme.onSurface,
           fontWeight: FontWeight.w600,
           fontSize: 15,
         ),
       ),
       subtitle: Text(
         subtitle,
-        style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+        style: TextStyle(
+          color: Theme.of(context).textTheme.bodySmall?.color,
+          fontSize: 12,
+        ),
       ),
-      trailing: const Icon(Icons.chevron_right_rounded,
-          color: AppColors.textMuted, size: 20),
+      trailing: trailing ?? Icon(Icons.chevron_right_rounded,
+          color: Theme.of(context).textTheme.bodySmall?.color, size: 20),
     );
   }
 }

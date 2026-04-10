@@ -1,15 +1,29 @@
 import 'dart:convert';
+import 'package:flutter/widgets.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/budget_model.dart';
 import '../models/budget_provider.dart';
+import '../models/receipt_model.dart';
 import '../models/receipt_provider.dart';
 import 'api_service.dart';
+
+enum SyncState { idle, uploading, downloading, merging, done, error }
+
+class SyncProgress {
+  final SyncState state;
+  final String? message;
+  SyncProgress(this.state, [this.message]);
+}
 
 class SyncService {
   final ApiService _api;
   final BudgetProvider _budgetProvider;
   final ReceiptProvider _receiptProvider;
   bool _isSyncing = false;
+
+  /// Listen to this for real-time sync progress updates.
+  final ValueNotifier<SyncProgress> progress =
+      ValueNotifier(SyncProgress(SyncState.idle));
 
   SyncService({
     required ApiService api,
@@ -32,6 +46,8 @@ class SyncService {
 
     _isSyncing = true;
     try {
+      progress.value = SyncProgress(SyncState.uploading, 'Pushing local changes...');
+
       final lastSynced = await _api.lastSyncedAt;
 
       // Build payload from local data
@@ -53,8 +69,8 @@ class SyncService {
             'type': t.type == TransactionType.expense ? 'expense' : 'income',
             'store_name': t.storeName,
             'image_path': t.imagePath,
-        'currency': t.currency,
-        'exchange_rate': t.exchangeRate,
+            'currency': t.currency,
+            'exchange_rate': t.exchangeRate,
             'updated_at': DateTime.now().toUtc().toIso8601String(),
           }).toList();
 
@@ -70,36 +86,139 @@ class SyncService {
             'updated_at': DateTime.now().toUtc().toIso8601String(),
           }).toList();
 
-      final response = await _api.authenticatedRequest(
-        'POST',
-        '/api/sync',
-        body: {
-          'last_synced_at': lastSynced?.toUtc().toIso8601String(),
-          'categories': categories,
-          'transactions': transactions,
-          'receipts': receipts,
-        },
-      );
+      // Paginated sync: loop until no more pages
+      int page = 1;
+      bool hasMore = true;
+      String? serverTime;
 
-      if (response.statusCode == 200) {
+      while (hasMore) {
+        progress.value = SyncProgress(
+          page == 1 ? SyncState.uploading : SyncState.downloading,
+          page == 1 ? 'Pushing local changes...' : 'Downloading page $page...',
+        );
+
+        final response = await _api.authenticatedRequest(
+          'POST',
+          '/api/sync',
+          body: {
+            'last_synced_at': lastSynced?.toUtc().toIso8601String(),
+            'categories': page == 1 ? categories : [],
+            'transactions': page == 1 ? transactions : [],
+            'receipts': page == 1 ? receipts : [],
+            'page': page,
+            'per_page': 500,
+          },
+        );
+
+        if (response.statusCode != 200) {
+          String msg = 'Server returned ${response.statusCode}';
+          try {
+            final body = jsonDecode(response.body);
+            if (body is Map && body['detail'] != null) {
+              msg = body['detail'].toString();
+            }
+          } catch (_) {}
+          progress.value = SyncProgress(SyncState.error, msg);
+          return (false, msg);
+        }
+
         final data = jsonDecode(response.body);
-        await _api.setLastSyncedAt(DateTime.parse(data['server_time']));
-        return (true, null);
+        serverTime = data['server_time'] as String;
+        hasMore = data['has_more'] as bool? ?? false;
+
+        progress.value = SyncProgress(SyncState.merging, 'Merging changes...');
+
+        // ── Apply server changes to local state ───────────────
+        await _applyServerChanges(data);
+        page++;
       }
 
-      // Try to extract server error detail
-      String msg = 'Server returned ${response.statusCode}';
-      try {
-        final body = jsonDecode(response.body);
-        if (body is Map && body['detail'] != null) {
-          msg = body['detail'].toString();
-        }
-      } catch (_) {}
-      return (false, msg);
+      if (serverTime != null) {
+        await _api.setLastSyncedAt(DateTime.parse(serverTime));
+      }
+
+      progress.value = SyncProgress(SyncState.done, 'Sync complete');
+      return (true, null);
     } on Exception catch (e) {
-      return (false, e.toString().replaceFirst('Exception: ', ''));
+      final msg = e.toString().replaceFirst('Exception: ', '');
+      progress.value = SyncProgress(SyncState.error, msg);
+      return (false, msg);
     } finally {
       _isSyncing = false;
+      // Reset to idle after a brief delay so UI can show "done"
+      Future.delayed(const Duration(seconds: 2), () {
+        if (progress.value.state == SyncState.done) {
+          progress.value = SyncProgress(SyncState.idle);
+        }
+      });
+    }
+  }
+
+  Future<void> _applyServerChanges(Map<String, dynamic> data) async {
+    final serverCats = data['categories'] as List? ?? [];
+    for (final sc in serverCats) {
+      final id = sc['id'] as String;
+      final existing = _budgetProvider.getCategoryById(id);
+      final cat = Category(
+        id: id,
+        name: sc['name'] as String,
+        icon: IconData(sc['icon_code'] as int, fontFamily: 'MaterialIcons'),
+        color: Color(sc['color_value'] as int),
+        budgetLimit: (sc['budget_limit'] as num).toDouble(),
+      );
+      if (existing != null) {
+        await _budgetProvider.updateCategory(id, cat);
+      } else {
+        await _budgetProvider.addCategory(cat);
+      }
+    }
+
+    final serverTxns = data['transactions'] as List? ?? [];
+    for (final st in serverTxns) {
+      final id = st['id'] as String;
+      final existingIdx = _budgetProvider.transactions
+          .indexWhere((t) => t.id == id);
+      final tx = Transaction(
+        id: id,
+        categoryId: st['category_id'] as String?,
+        amount: (st['amount'] as num).toDouble(),
+        date: DateTime.parse(st['date'] as String),
+        note: st['note'] as String? ?? '',
+        type: st['type'] == 'income'
+            ? TransactionType.income
+            : TransactionType.expense,
+        storeName: st['store_name'] as String? ?? '',
+        imagePath: st['image_path'] as String? ?? '',
+        currency: st['currency'] as String? ?? 'MVR',
+        exchangeRate: st['exchange_rate'] != null
+            ? (st['exchange_rate'] as num).toDouble()
+            : null,
+      );
+      if (existingIdx != -1) {
+        await _budgetProvider.updateTransaction(id, tx);
+      } else {
+        await _budgetProvider.addTransaction(tx);
+      }
+    }
+
+    final serverRcpts = data['receipts'] as List? ?? [];
+    for (final sr in serverRcpts) {
+      final id = sr['id'] as String;
+      final existingRcpt =
+          _receiptProvider.receipts.where((r) => r.id == id);
+      final receipt = Receipt(
+        id: id,
+        storeName: sr['store_name'] as String,
+        date: DateTime.parse(sr['date'] as String),
+        total: (sr['total'] as num).toDouble(),
+        categoryId: sr['category_id'] as String? ?? '',
+        transactionId: sr['transaction_id'] as String? ?? '',
+        imagePath: sr['image_path'] as String? ?? '',
+        itemsJson: sr['items_json'] as String? ?? '[]',
+      );
+      if (existingRcpt.isEmpty) {
+        await _receiptProvider.addReceipt(receipt);
+      }
     }
   }
 }
