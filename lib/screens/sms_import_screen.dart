@@ -19,7 +19,7 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
   bool _loading = true;
   String? _error;
   bool _showAll = false;
-  String _currentSender = SmsTransactionService.defaultSender;
+  List<String> _currentSenders = [SmsTransactionService.defaultSender];
   DateTime _dateRangeStart = DateTime.now().subtract(const Duration(days: 30));
   DateTime _dateRangeEnd = DateTime.now();
   bool _dateFilterEnabled = false;
@@ -37,7 +37,7 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
     });
 
     try {
-      _currentSender = await SmsTransactionService.getSender();
+      _currentSenders = await SmsTransactionService.getSenders();
       final all = await SmsTransactionService.fetchBankTransactions();
 
       if (!mounted) return;
@@ -419,7 +419,7 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
   }
 
   void _showSettings() {
-    final senderCtrl = TextEditingController(text: _currentSender);
+    final senderCtrl = TextEditingController(text: _currentSenders.join(', '));
 
     showModalBottomSheet(
       context: context,
@@ -429,9 +429,9 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
         padding:
             EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: Container(
-          decoration: const BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          decoration: BoxDecoration(
+            color: Theme.of(ctx).colorScheme.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
           child: Column(
@@ -443,7 +443,7 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.textMuted,
+                    color: Theme.of(ctx).textTheme.bodySmall?.color,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -454,41 +454,37 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
                 style: Theme.of(ctx).textTheme.titleLarge,
               ),
               const SizedBox(height: 6),
-              const Text(
-                'Configure which SMS sender to read bank transactions from.',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 13),
+              Text(
+                'Configure which SMS senders to read bank transactions from.',
+                style: TextStyle(color: Theme.of(ctx).textTheme.bodySmall?.color, fontSize: 13),
               ),
               const SizedBox(height: 20),
               TextField(
                 controller: senderCtrl,
-                style: const TextStyle(color: AppColors.textPrimary),
-                decoration: InputDecoration(
-                  labelText: 'Sender Address',
-                  hintText: 'e.g. 455, BML, BANKNAME',
-                  hintStyle: const TextStyle(color: AppColors.textMuted),
-                  labelStyle:
-                      const TextStyle(color: AppColors.textSecondary),
-                  filled: true,
-                  fillColor: AppColors.surfaceLight,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  prefixIcon: const Icon(Icons.sms_rounded,
+                decoration: const InputDecoration(
+                  labelText: 'Sender Addresses',
+                  hintText: 'e.g. 455, IslamicBank',
+                  helperText: 'Comma-separated sender IDs or names.',
+                  prefixIcon: Icon(Icons.sms_rounded,
                       color: AppColors.primary, size: 20),
                 ),
               ),
               const SizedBox(height: 12),
-              const Text(
-                'Only SMS matching the bank transaction format will be shown. OTPs and other messages are automatically filtered out.',
-                style: TextStyle(color: AppColors.textMuted, fontSize: 11),
+              Text(
+                'Each vendor\'s SMS format is auto-detected. OTPs and other messages are automatically filtered out.',
+                style: TextStyle(color: Theme.of(ctx).textTheme.bodySmall?.color, fontSize: 11),
               ),
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () async {
-                    await SmsTransactionService.setSender(senderCtrl.text);
+                    final senders = senderCtrl.text
+                        .split(',')
+                        .map((e) => e.trim())
+                        .where((e) => e.isNotEmpty)
+                        .toList();
+                    await SmsTransactionService.setSenders(senders);
                     if (!ctx.mounted) return;
                     Navigator.pop(ctx);
                     _loadSms();
@@ -617,7 +613,7 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
                             const SizedBox(height: 8),
                             Text(
                               _showAll
-                                  ? 'No transaction SMS found from sender $_currentSender'
+                                  ? 'No transaction SMS found from ${_currentSenders.join(", ")}'
                                   : 'All SMS transactions are already imported',
                               style: const TextStyle(
                                   color: AppColors.textMuted, fontSize: 13),
