@@ -99,6 +99,7 @@ def sync(
 
         # ── Push: upsert client changes ──────────────────────────
         for c in req.categories:
+            savepoint = db.begin_nested()
             try:
                 existing = db.query(Category).filter(
                     Category.id == c.id, Category.user_id == user.id
@@ -132,28 +133,39 @@ def sync(
                         updated_at=c.updated_at,
                         deleted_at=c.deleted_at,
                     ))
-            except (IntegrityError, SQLAlchemyError) as e:
-                db.rollback()
+                savepoint.commit()
+            except IntegrityError as e:
+                savepoint.rollback()
+                logger.warning(f"Category sync skip for user {user.id}, id={c.id}: duplicate")
+                continue
+            except SQLAlchemyError as e:
+                savepoint.rollback()
                 logger.error(f"Category sync error for user {user.id}: {str(e)}")
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid category data: {str(e)}"
+                    detail="Failed to sync a category. Please try again."
                 )
 
         # Flush so that FK validation for transactions can find newly-added categories
         try:
             db.flush()
-        except (IntegrityError, SQLAlchemyError) as e:
+        except IntegrityError as e:
             db.rollback()
             logger.error(f"Category flush error for user {user.id}: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"Invalid category data: {str(e)}")
+            raise HTTPException(status_code=400, detail="Category data conflict. Please try again.")
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Category flush error for user {user.id}: {str(e)}")
+            raise HTTPException(status_code=400, detail="Failed to save categories. Please try again.")
 
         for t in req.transactions:
+            savepoint = db.begin_nested()
             try:
                 # Validate enum
                 try:
                     tx_type = TransactionType(t.type)
                 except (ValueError, KeyError):
+                    savepoint.rollback()
                     raise HTTPException(
                         status_code=400,
                         detail=f"Invalid transaction type '{t.type}'. Must be 'expense' or 'income'."
@@ -165,13 +177,12 @@ def sync(
                         Category.id == t.category_id, Category.user_id == user.id
                     ).first()
                     if not category_exists:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Category {t.category_id} not found for this user"
-                        )
+                        # Category missing — clear the reference instead of failing
+                        t.category_id = None
 
                 # Validate amount
                 if t.amount < 0:
+                    savepoint.rollback()
                     raise HTTPException(
                         status_code=400,
                         detail="Transaction amount cannot be negative"
@@ -217,46 +228,50 @@ def sync(
                         updated_at=t.updated_at,
                         deleted_at=t.deleted_at,
                     ))
+                savepoint.commit()
             except HTTPException:
                 raise
-            except (IntegrityError, SQLAlchemyError) as e:
-                db.rollback()
+            except IntegrityError as e:
+                savepoint.rollback()
+                logger.warning(f"Transaction sync skip for user {user.id}, id={t.id}: duplicate")
+                continue
+            except SQLAlchemyError as e:
+                savepoint.rollback()
                 logger.error(f"Transaction sync error for user {user.id}: {str(e)}")
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid transaction data: {str(e)}"
+                    detail="Failed to sync a transaction. Please try again."
                 )
 
         # Flush so that FK validation for receipts can find newly-added transactions
         try:
             db.flush()
-        except (IntegrityError, SQLAlchemyError) as e:
+        except IntegrityError as e:
             db.rollback()
             logger.error(f"Transaction flush error for user {user.id}: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"Invalid transaction data: {str(e)}")
+            raise HTTPException(status_code=400, detail="Transaction data conflict. Please try again.")
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Transaction flush error for user {user.id}: {str(e)}")
+            raise HTTPException(status_code=400, detail="Failed to save transactions. Please try again.")
 
         for r in req.receipts:
+            savepoint = db.begin_nested()
             try:
-                # Validate foreign keys if specified
+                # Clear invalid foreign key references instead of failing
                 if r.category_id:
                     category_exists = db.query(Category).filter(
                         Category.id == r.category_id, Category.user_id == user.id
                     ).first()
                     if not category_exists:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Category {r.category_id} not found for this user"
-                        )
+                        r.category_id = ""
 
                 if r.transaction_id:
                     transaction_exists = db.query(Transaction).filter(
                         Transaction.id == r.transaction_id, Transaction.user_id == user.id
                     ).first()
                     if not transaction_exists:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Transaction {r.transaction_id} not found for this user"
-                        )
+                        r.transaction_id = ""
 
                 existing = db.query(Receipt).filter(
                     Receipt.id == r.id, Receipt.user_id == user.id
@@ -294,24 +309,36 @@ def sync(
                         updated_at=r.updated_at,
                         deleted_at=r.deleted_at,
                     ))
+                savepoint.commit()
             except HTTPException:
                 raise
-            except (IntegrityError, SQLAlchemyError) as e:
-                db.rollback()
+            except IntegrityError as e:
+                savepoint.rollback()
+                logger.warning(f"Receipt sync skip for user {user.id}, id={r.id}: duplicate")
+                continue
+            except SQLAlchemyError as e:
+                savepoint.rollback()
                 logger.error(f"Receipt sync error for user {user.id}: {str(e)}")
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid receipt data: {str(e)}"
+                    detail="Failed to sync a receipt. Please try again."
                 )
 
         try:
             db.commit()
-        except (IntegrityError, SQLAlchemyError) as e:
+        except IntegrityError as e:
             db.rollback()
             logger.error(f"Database commit error for user {user.id}: {str(e)}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Failed to save changes: {str(e)}"
+                detail="Data conflict during sync. Please try again."
+            )
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database commit error for user {user.id}: {str(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to save sync changes. Please try again."
             )
 
         # ── Pull: return server changes since last_synced_at (paginated) ─

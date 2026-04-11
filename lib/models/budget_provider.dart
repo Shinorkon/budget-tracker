@@ -336,10 +336,10 @@ class BudgetProvider extends ChangeNotifier {
   }
 
   // ─── CRUD: Transaction ─────────────────────────────────────
-  Future<void> addTransaction(Transaction transaction) async {
+  Future<void> addTransaction(Transaction transaction, {bool skipDuplicateCheck = false}) async {
     // Duplicate check and list insert must be synchronous (no await between)
     // to prevent interleaved calls from passing the same check.
-    if (isDuplicateTransaction(transaction)) {
+    if (!skipDuplicateCheck && isDuplicateTransaction(transaction)) {
       return;
     }
     _transactions.add(transaction);

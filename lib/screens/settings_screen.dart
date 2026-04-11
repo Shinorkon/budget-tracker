@@ -615,9 +615,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     setState(() => _isSyncing = false);
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    final errorMsg = error != null && error.length > 80
+        ? '${error.substring(0, 80)}...'
+        : error ?? 'Unknown error';
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(success ? 'Sync complete' : 'Sync failed: ${error ?? "Unknown error"}'),
+        content: Text(success ? 'Sync complete' : 'Sync failed: $errorMsg'),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         backgroundColor: success ? AppColors.income : AppColors.expense,

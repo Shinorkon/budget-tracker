@@ -158,6 +158,17 @@ class SyncService {
     final serverCats = data['categories'] as List? ?? [];
     for (final sc in serverCats) {
       final id = sc['id'] as String;
+      final deletedAt = sc['deleted_at'];
+
+      // Handle soft-deleted items from server
+      if (deletedAt != null) {
+        final existing = _budgetProvider.getCategoryById(id);
+        if (existing != null) {
+          await _budgetProvider.deleteCategory(id);
+        }
+        continue;
+      }
+
       final existing = _budgetProvider.getCategoryById(id);
       final cat = Category(
         id: id,
@@ -176,6 +187,17 @@ class SyncService {
     final serverTxns = data['transactions'] as List? ?? [];
     for (final st in serverTxns) {
       final id = st['id'] as String;
+      final deletedAt = st['deleted_at'];
+
+      if (deletedAt != null) {
+        final existingIdx = _budgetProvider.transactions
+            .indexWhere((t) => t.id == id);
+        if (existingIdx != -1) {
+          await _budgetProvider.deleteTransaction(id);
+        }
+        continue;
+      }
+
       final existingIdx = _budgetProvider.transactions
           .indexWhere((t) => t.id == id);
       final tx = Transaction(
@@ -197,13 +219,25 @@ class SyncService {
       if (existingIdx != -1) {
         await _budgetProvider.updateTransaction(id, tx);
       } else {
-        await _budgetProvider.addTransaction(tx);
+        // Skip fuzzy duplicate check for server data — ID is authoritative
+        await _budgetProvider.addTransaction(tx, skipDuplicateCheck: true);
       }
     }
 
     final serverRcpts = data['receipts'] as List? ?? [];
     for (final sr in serverRcpts) {
       final id = sr['id'] as String;
+      final deletedAt = sr['deleted_at'];
+
+      if (deletedAt != null) {
+        final existingRcpt =
+            _receiptProvider.receipts.where((r) => r.id == id);
+        if (existingRcpt.isNotEmpty) {
+          await _receiptProvider.deleteReceipt(id);
+        }
+        continue;
+      }
+
       final existingRcpt =
           _receiptProvider.receipts.where((r) => r.id == id);
       final receipt = Receipt(
