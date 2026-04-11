@@ -592,37 +592,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       receiptProvider: receiptProvider,
     );
 
-    // Show progress updates via snackbar
-    syncService.progress.addListener(() {
-      if (!mounted) return;
-      final p = syncService.progress.value;
-      if (p.state == SyncState.uploading || p.state == SyncState.downloading || p.state == SyncState.merging) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const SizedBox(
-                  width: 16, height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                ),
-                const SizedBox(width: 12),
-                Text(p.message ?? 'Syncing...'),
-              ],
-            ),
-            duration: const Duration(seconds: 30),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-      }
-    });
-
     final (success, error) = await syncService.sync();
     if (!mounted) return;
 
     setState(() => _isSyncing = false);
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     final errorMsg = error != null && error.length > 80
         ? '${error.substring(0, 80)}...'
         : error ?? 'Unknown error';
@@ -632,6 +605,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         backgroundColor: success ? AppColors.income : AppColors.expense,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -882,31 +856,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _refreshSms(BuildContext context, BudgetProvider budget) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
-            SizedBox(width: 12),
-            Text('Scanning SMS inbox...'),
-          ],
-        ),
-        duration: const Duration(seconds: 30),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-
     final count = await LiveSmsListenerService.instance.refresh(budget);
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(count > 0 ? '$count new transactions imported' : 'No new transactions found'),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         backgroundColor: count > 0 ? AppColors.income : null,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
