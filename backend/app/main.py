@@ -23,7 +23,7 @@ if not settings.debug and settings.secret_key in ("", "dev-secret"):
 app = FastAPI(
     title="Budgy API",
     description="Budget tracker sync API",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 app.state.limiter = limiter
@@ -50,7 +50,7 @@ app.include_router(receipts_router)
 
 @app.get("/")
 def root():
-    return {"message": "Budgy API", "version": "1.1.0"}
+    return {"message": "Budgy API", "version": "1.2.0"}
 
 
 @app.get("/health")
