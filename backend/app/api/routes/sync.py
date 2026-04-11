@@ -31,6 +31,7 @@ class CategorySync(BaseModel):
     icon_code: int
     color_value: int
     budget_limit: float = 0
+    version: int = 1
     updated_at: datetime
     deleted_at: Optional[datetime] = None
 
@@ -46,6 +47,7 @@ class TransactionSync(BaseModel):
     image_path: str = ""
     currency: str = "MVR"
     exchange_rate: Optional[float] = None
+    version: int = 1
     updated_at: datetime
     deleted_at: Optional[datetime] = None
 
@@ -59,6 +61,7 @@ class ReceiptSync(BaseModel):
     transaction_id: str = ""
     image_path: str = ""
     items_json: str = "[]"
+    version: int = 1
     updated_at: datetime
     deleted_at: Optional[datetime] = None
 
@@ -101,11 +104,19 @@ def sync(
                     Category.id == c.id, Category.user_id == user.id
                 ).first()
                 if existing:
-                    if c.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc)):
+                    # Version-based conflict resolution: higher version wins,
+                    # fall back to updated_at if versions are equal
+                    client_version = c.version or 1
+                    server_version = existing.version or 1
+                    if client_version > server_version or (
+                        client_version == server_version
+                        and c.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+                    ):
                         existing.name = c.name
                         existing.icon_code = c.icon_code
                         existing.color_value = c.color_value
                         existing.budget_limit = c.budget_limit
+                        existing.version = client_version
                         existing.updated_at = c.updated_at
                         existing.deleted_at = c.deleted_at
                 else:
@@ -116,6 +127,7 @@ def sync(
                         icon_code=c.icon_code,
                         color_value=c.color_value,
                         budget_limit=c.budget_limit,
+                        version=c.version,
                         created_at=c.updated_at,
                         updated_at=c.updated_at,
                         deleted_at=c.deleted_at,
@@ -169,7 +181,12 @@ def sync(
                     Transaction.id == t.id, Transaction.user_id == user.id
                 ).first()
                 if existing:
-                    if t.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc)):
+                    client_version = t.version or 1
+                    server_version = existing.version or 1
+                    if client_version > server_version or (
+                        client_version == server_version
+                        and t.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+                    ):
                         existing.category_id = t.category_id
                         existing.amount = t.amount
                         existing.date = t.date
@@ -179,6 +196,7 @@ def sync(
                         existing.image_path = t.image_path
                         existing.currency = t.currency
                         existing.exchange_rate = t.exchange_rate
+                        existing.version = client_version
                         existing.updated_at = t.updated_at
                         existing.deleted_at = t.deleted_at
                 else:
@@ -194,6 +212,7 @@ def sync(
                         image_path=t.image_path,
                         currency=t.currency,
                         exchange_rate=t.exchange_rate,
+                        version=t.version,
                         created_at=t.updated_at,
                         updated_at=t.updated_at,
                         deleted_at=t.deleted_at,
@@ -243,7 +262,12 @@ def sync(
                     Receipt.id == r.id, Receipt.user_id == user.id
                 ).first()
                 if existing:
-                    if r.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc)):
+                    client_version = r.version or 1
+                    server_version = existing.version or 1
+                    if client_version > server_version or (
+                        client_version == server_version
+                        and r.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+                    ):
                         existing.store_name = r.store_name
                         existing.date = r.date
                         existing.total = r.total
@@ -251,6 +275,7 @@ def sync(
                         existing.transaction_id = r.transaction_id
                         existing.image_path = r.image_path
                         existing.items_json = r.items_json
+                        existing.version = client_version
                         existing.updated_at = r.updated_at
                         existing.deleted_at = r.deleted_at
                 else:
@@ -264,6 +289,7 @@ def sync(
                         transaction_id=r.transaction_id,
                         image_path=r.image_path,
                         items_json=r.items_json,
+                        version=r.version,
                         created_at=r.updated_at,
                         updated_at=r.updated_at,
                         deleted_at=r.deleted_at,
@@ -318,6 +344,7 @@ def sync(
                 CategorySync(
                     id=c.id, name=c.name, icon_code=c.icon_code,
                     color_value=c.color_value, budget_limit=c.budget_limit,
+                    version=c.version or 1,
                     updated_at=c.updated_at, deleted_at=c.deleted_at,
                 ) for c in server_cats
             ],
@@ -327,6 +354,7 @@ def sync(
                     date=t.date, note=t.note, type=t.type.value,
                     store_name=t.store_name, image_path=t.image_path,
                     currency=t.currency, exchange_rate=t.exchange_rate,
+                    version=t.version or 1,
                     updated_at=t.updated_at, deleted_at=t.deleted_at,
                 ) for t in server_txns
             ],
@@ -335,8 +363,8 @@ def sync(
                     id=r.id, store_name=r.store_name, date=r.date,
                     total=r.total, category_id=r.category_id,
                     transaction_id=r.transaction_id, image_path=r.image_path,
-                    items_json=r.items_json, updated_at=r.updated_at,
-                    deleted_at=r.deleted_at,
+                    items_json=r.items_json, version=r.version or 1,
+                    updated_at=r.updated_at, deleted_at=r.deleted_at,
                 ) for r in server_rcpts
             ],
         )

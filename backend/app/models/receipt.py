@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text
 from app.core.db import Base
 
 
@@ -16,6 +16,7 @@ class Receipt(Base):
     transaction_id = Column(String, default="")
     image_path = Column(String, default="")
     items_json = Column(Text, default="[]")
+    version = Column(Integer, default=1)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

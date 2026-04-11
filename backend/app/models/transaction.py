@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Enum as SQLEnum
 import enum
 from app.core.db import Base
 
@@ -24,6 +24,7 @@ class Transaction(Base):
     image_path = Column(String, default="")
     currency = Column(String(10), default="MVR")  # Original currency (for SMS imports)
     exchange_rate = Column(Float, nullable=True)  # Conversion rate used (for audit trail)
+    version = Column(Integer, default=1)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

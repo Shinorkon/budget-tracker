@@ -13,6 +13,7 @@ class Category(Base):
     icon_code = Column(Integer, nullable=False)
     color_value = Column(Integer, nullable=False)
     budget_limit = Column(Float, default=0)
+    version = Column(Integer, default=1)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
