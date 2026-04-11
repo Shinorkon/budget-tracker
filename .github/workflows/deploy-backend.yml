@@ -32,37 +32,22 @@ jobs:
           script: |
             set -e
 
-            cd /root/budgy || { mkdir -p /root/budgy && cd /root/budgy; }
+            cd /root/budget-tracker
 
             # Pull latest changes
-            if [ -d ".git" ]; then
-              git pull origin main || git pull origin master || true
-            else
-              git clone https://github.com/${{ github.repository }}.git .
-            fi
+            git pull origin main || git pull origin master || true
 
-            # Deploy backend
-            cd backend
-
-            # If running with Docker
-            if command -v docker &> /dev/null && [ -f docker-compose.yml ]; then
-              docker compose up -d --build
-              sleep 10
-              docker compose exec -T backend alembic upgrade head || true
-            fi
-
-            # If running with systemd/uvicorn directly
-            if systemctl is-active --quiet budgy-backend 2>/dev/null; then
-              sudo systemctl restart budgy-backend
-              sleep 5
-            fi
+            # Deploy backend using root docker-compose
+            docker compose up -d --build backend
+            sleep 5
 
             # Health check
             echo "Checking backend health..."
-            if curl -sf http://localhost:8001/health || curl -sf http://localhost:8000/health; then
-              echo "✅ Backend is healthy!"
+            if curl -sf http://localhost:8001/health; then
+              echo "Backend is healthy!"
             else
-              echo "⚠️ Health check failed — backend may need manual restart"
+              echo "Health check failed — backend may need manual restart"
+              exit 1
             fi
 
       - name: Notify deployment success
