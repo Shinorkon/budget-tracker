@@ -34,17 +34,13 @@ jobs:
 
             cd /root/budget-tracker
 
-            # Stash any local changes (e.g. env overrides) before pulling
-            git stash --include-untracked || true
-
-            # Pull latest changes
+            # Drop any local changes and match remote exactly
+            git stash drop || true
             git fetch origin
             git reset --hard origin/main || git reset --hard origin/master
+            git clean -fd -e .env -e backend/.env
 
-            # Re-apply local overrides if any
-            git stash pop || true
-
-            # Export production port
+            # Production port override
             export API_PORT=8001
 
             # Rebuild and deploy backend
