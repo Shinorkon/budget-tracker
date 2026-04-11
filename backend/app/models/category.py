@@ -22,4 +22,3 @@ class Category(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
-    version = Column(Integer, default=1)

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, Integer, DateTime, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Enum as SQLEnum
 import enum
 from app.core.db import Base
 
@@ -33,4 +33,3 @@ class Transaction(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
     deleted_at = Column(DateTime(timezone=True), nullable=True)
-    version = Column(Integer, default=1)
