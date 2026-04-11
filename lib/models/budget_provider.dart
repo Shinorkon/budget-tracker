@@ -15,7 +15,6 @@ class BudgetProvider extends ChangeNotifier {
   bool _isLoading = true;
   late Box<Category> _catBox;
   late Box<Transaction> _txBox;
-  final HiveAesCipher? _cipher;
 
   // Getters
   List<Category> get categories => List.unmodifiable(_categories);
@@ -42,7 +41,7 @@ class BudgetProvider extends ChangeNotifier {
     return '${monthNames[_selectedMonth.month - 1]} ${_selectedMonth.year}';
   }
 
-  BudgetProvider({HiveAesCipher? cipher}) : _cipher = cipher {
+  BudgetProvider() {
     _init();
   }
 
@@ -54,14 +53,8 @@ class BudgetProvider extends ChangeNotifier {
       Hive.registerAdapter(TransactionAdapter());
     }
 
-    // Migrate unencrypted boxes to encrypted on first run.
-    await _migrateToEncrypted<Category>('categories_v2');
-    await _migrateToEncrypted<Transaction>('transactions_v2');
-
-    _catBox = await Hive.openBox<Category>('categories_v2',
-        encryptionCipher: _cipher);
-    _txBox = await Hive.openBox<Transaction>('transactions_v2',
-        encryptionCipher: _cipher);
+    _catBox = await Hive.openBox<Category>('categories_v2');
+    _txBox = await Hive.openBox<Transaction>('transactions_v2');
 
     _categories = _catBox.values.toList();
     _transactions = _txBox.values.toList();
@@ -73,34 +66,6 @@ class BudgetProvider extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
-  }
-
-  /// One-time migration: if an unencrypted box exists and encryption is enabled,
-  /// read all data, delete the old box, and re-write encrypted.
-  Future<void> _migrateToEncrypted<T>(String boxName) async {
-    if (_cipher == null) return;
-    // If the box is already open (encrypted), skip.
-    if (Hive.isBoxOpen(boxName)) return;
-    try {
-      // Try opening without encryption — if it works, data is unencrypted.
-      final plain = await Hive.openBox<T>(boxName);
-      if (plain.isEmpty) {
-        await plain.close();
-        return;
-      }
-      final entries = plain.values.toList();
-      await plain.close();
-      await Hive.deleteBoxFromDisk(boxName);
-      // Re-create with encryption.
-      final encrypted = await Hive.openBox<T>(boxName,
-          encryptionCipher: _cipher);
-      for (final entry in entries) {
-        await encrypted.add(entry);
-      }
-      await encrypted.close();
-    } catch (_) {
-      // Box may already be encrypted — that's fine, nothing to migrate.
-    }
   }
 
   Future<void> _addDefaultCategories() async {

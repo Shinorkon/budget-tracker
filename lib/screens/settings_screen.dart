@@ -282,6 +282,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       _divider(),
                       _SettingsTile(
+                        icon: Icons.refresh_rounded,
+                        iconColor: AppColors.accent,
+                        title: 'Refresh SMS',
+                        subtitle: 'Re-scan inbox for missed transactions',
+                        onTap: () => _refreshSms(context, budget),
+                      ),
+                      _divider(),
+                      _SettingsTile(
                         icon: Icons.receipt_long_rounded,
                         iconColor: AppColors.primary,
                         title: 'Receipts History',
@@ -869,6 +877,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> _refreshSms(BuildContext context, BudgetProvider budget) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+            SizedBox(width: 12),
+            Text('Scanning SMS inbox...'),
+          ],
+        ),
+        duration: const Duration(seconds: 30),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+
+    final count = await LiveSmsListenerService.instance.refresh(budget);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(count > 0 ? '$count new transactions imported' : 'No new transactions found'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        backgroundColor: count > 0 ? AppColors.income : null,
       ),
     );
   }

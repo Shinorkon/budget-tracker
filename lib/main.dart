@@ -9,20 +9,16 @@ import 'screens/main_layout.dart';
 import 'screens/auth_screen.dart';
 import 'screens/lock_screen.dart';
 import 'services/api_service.dart';
-import 'services/hive_encryption_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
 
-  // Obtain encryption cipher for Hive boxes.
-  final cipher = await HiveEncryptionService.getCipher();
-
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => BudgetProvider(cipher: cipher)),
-        ChangeNotifierProvider(create: (_) => ReceiptProvider(cipher: cipher)),
+        ChangeNotifierProvider(create: (_) => BudgetProvider()),
+        ChangeNotifierProvider(create: (_) => ReceiptProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
       child: const BudgetApp(),

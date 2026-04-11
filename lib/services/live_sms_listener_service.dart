@@ -71,6 +71,36 @@ class LiveSmsListenerService {
     }
   }
 
+  /// Manual refresh: re-scan SMS inbox and import any missed transactions.
+  Future<int> refresh(BudgetProvider budget) async {
+    try {
+      final allParsed = await SmsTransactionService.fetchBankTransactions();
+      final newTxns = SmsTransactionService.filterNew(allParsed, budget.transactions);
+
+      for (final parsed in newTxns) {
+        parsed.categoryId ??= SmsTransactionService.suggestCategory(
+          parsed.merchant,
+          budget.categories,
+        );
+        final tx = await SmsTransactionService.toTransaction(
+          parsed,
+          primaryCurrency: budget.currency,
+        );
+        await budget.addTransaction(tx);
+      }
+
+      if (newTxns.isNotEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt(_keyLastSmsCheck, DateTime.now().millisecondsSinceEpoch);
+      }
+
+      return newTxns.length;
+    } catch (e) {
+      debugPrint('LiveSmsListenerService: refresh error: $e');
+      return 0;
+    }
+  }
+
   Future<void> _handleIncomingSms(SmsMessage message, BudgetProvider budget) async {
     try {
       final body = message.body ?? '';
