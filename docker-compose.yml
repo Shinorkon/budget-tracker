@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-budgy}
       POSTGRES_DB: budgy
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - budgy_db_data:/var/lib/postgresql/data
     healthcheck:
