@@ -1,7 +1,7 @@
 """add vendor_rules table for user-defined vendor->category mapping
 
 Revision ID: 0007_vendor_rules
-Revises: 0006_bigint_category_columns
+Revises: 0006_bigint_cats
 Create Date: 2026-04-12 00:00:00
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "0007_vendor_rules"
-down_revision: Union[str, None] = "0006_bigint_category_columns"
+down_revision: Union[str, None] = "0006_bigint_cats"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
