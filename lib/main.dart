@@ -9,10 +9,14 @@ import 'screens/main_layout.dart';
 import 'screens/auth_screen.dart';
 import 'screens/lock_screen.dart';
 import 'services/api_service.dart';
+import 'services/live_sync_service.dart';
+import 'services/notification_service.dart';
+import 'services/receipt_scan_queue.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
+  await NotificationService.instance.init();
 
   runApp(
     MultiProvider(
@@ -88,6 +92,17 @@ class _AppEntryState extends State<_AppEntry> with WidgetsBindingObserver {
     final loggedIn = await _api.isLoggedIn;
     final biometricEnabled = await BiometricPrefs.isEnabled();
     if (!mounted) return;
+
+    final budget = context.read<BudgetProvider>();
+    final receipts = context.read<ReceiptProvider>();
+
+    await LiveSyncService.instance.start(
+      budget: budget,
+      receipts: receipts,
+      api: _api,
+    );
+    ReceiptScanQueue.instance.attach(budget: budget, receipts: receipts);
+
     setState(() {
       _isLoading = false;
       _isAuthenticatedOrSkipped = loggedIn;

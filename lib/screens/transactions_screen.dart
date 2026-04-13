@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import '../theme/app_theme.dart';
 import '../models/budget_provider.dart';
 import '../models/budget_model.dart';
+import '../services/receipt_scan_queue.dart';
 import '../utils/formatters.dart';
 import 'calendar_screen.dart';
 
@@ -251,6 +254,27 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
                                 child: Slidable(
+                                  key: ValueKey(t.id),
+                                  startActionPane: t.type ==
+                                          TransactionType.expense
+                                      ? ActionPane(
+                                          motion: const DrawerMotion(),
+                                          extentRatio: 0.25,
+                                          children: [
+                                            SlidableAction(
+                                              onPressed: (_) =>
+                                                  _attachReceipt(context, t),
+                                              backgroundColor:
+                                                  AppColors.primary,
+                                              foregroundColor: Colors.white,
+                                              icon: Icons.receipt_long_rounded,
+                                              label: 'Receipt',
+                                              borderRadius:
+                                                  BorderRadius.circular(14),
+                                            ),
+                                          ],
+                                        )
+                                      : null,
                                   endActionPane: ActionPane(
                                     motion: const DrawerMotion(),
                                     children: [
@@ -265,10 +289,20 @@ class _TransactionsScreenState extends State<TransactionsScreen>
                                       ),
                                     ],
                                   ),
-                                  child: _TransactionCard(
-                                    transaction: t,
-                                    category: cat,
-                                    currency: budget.currency,
+                                  child: ValueListenableBuilder<
+                                      List<ReceiptScan>>(
+                                    valueListenable:
+                                        ReceiptScanQueue.instance.pending,
+                                    builder: (context, pending, _) {
+                                      final isScanning = pending
+                                          .any((s) => s.transactionId == t.id);
+                                      return _TransactionCard(
+                                        transaction: t,
+                                        category: cat,
+                                        currency: budget.currency,
+                                        isScanning: isScanning,
+                                      );
+                                    },
                                   ),
                                 ),
                               );
@@ -280,6 +314,131 @@ class _TransactionsScreenState extends State<TransactionsScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _attachReceipt(BuildContext context, Transaction t) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.textMuted,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Attach Receipt',
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Vendor "${t.storeName.isEmpty ? "Unknown" : t.storeName}" '
+              '• ${formatCurrency(t.amount, Provider.of<BudgetProvider>(context, listen: false).currency)}',
+              style: const TextStyle(
+                  color: AppColors.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context, ImageSource.camera),
+                    child: _receiptSourceTile(
+                      icon: Icons.camera_alt_rounded,
+                      label: 'Camera',
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(context, ImageSource.gallery),
+                    child: _receiptSourceTile(
+                      icon: Icons.photo_library_rounded,
+                      label: 'Gallery',
+                      color: AppColors.accent,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source == null) return;
+    if (!context.mounted) return;
+
+    final picker = ImagePicker();
+    final XFile? file = await picker.pickImage(
+      source: source,
+      imageQuality: 90,
+      maxWidth: 2048,
+    );
+    if (file == null) return;
+    if (!context.mounted) return;
+
+    final bytes = await File(file.path).readAsBytes();
+    final path = await ReceiptScanQueue.instance.enqueueFromBytes(
+      rawBytes: bytes,
+      transaction: t,
+    );
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(path == null
+            ? 'Could not save receipt image'
+            : 'Scanning in background — you\'ll get a notification when done.'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        backgroundColor: path == null ? AppColors.expense : AppColors.primary,
+      ),
+    );
+  }
+
+  Widget _receiptSourceTile({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: TextStyle(
+                color: color, fontWeight: FontWeight.w600, fontSize: 14),
+          ),
+        ],
       ),
     );
   }
@@ -325,11 +484,13 @@ class _TransactionCard extends StatelessWidget {
   final Transaction transaction;
   final Category? category;
   final String currency;
+  final bool isScanning;
 
   const _TransactionCard({
     required this.transaction,
     required this.category,
     required this.currency,
+    this.isScanning = false,
   });
 
   @override
@@ -368,13 +529,37 @@ class _TransactionCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  isIncome ? 'Income' : (category?.name ?? 'Expense'),
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
-                  ),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        isIncome ? 'Income' : (category?.name ?? 'Expense'),
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurface,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (isScanning) ...[
+                      const SizedBox(width: 8),
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.primary),
+                      ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'scanning receipt…',
+                        style: TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ],
                 ),
                 if (transaction.note.isNotEmpty) ...[
                   const SizedBox(height: 2),

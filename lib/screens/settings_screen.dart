@@ -5,7 +5,8 @@ import '../theme/app_theme.dart';
 import '../models/budget_provider.dart';
 import '../models/receipt_provider.dart';
 import '../services/api_service.dart';
-import '../services/sync_service.dart';
+import '../services/live_sync_service.dart';
+import '../services/notification_service.dart';
 import '../models/theme_provider.dart';
 import '../services/sms_transaction_service.dart';
 import '../services/live_sms_listener_service.dart';
@@ -17,6 +18,8 @@ import 'stores_screen.dart';
 import 'items_screen.dart';
 import 'sms_import_screen.dart';
 import 'lock_screen.dart';
+import 'vendor_rules_screen.dart';
+import 'finance_timeline_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -290,6 +293,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       _divider(),
                       _SettingsTile(
+                        icon: Icons.rule_rounded,
+                        iconColor: AppColors.primaryLight,
+                        title: 'Vendor Rules',
+                        subtitle:
+                            'Map merchants to categories (fixes wrong auto-category)',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const VendorRulesScreen(),
+                          ),
+                        ),
+                      ),
+                      _divider(),
+                      _SettingsTile(
+                        icon: Icons.paid_rounded,
+                        iconColor: AppColors.income,
+                        title: 'Income / Salary SMS',
+                        subtitle: 'Configure salary detection patterns',
+                        onTap: () => _showIncomeSmsConfig(context),
+                      ),
+                      _divider(),
+                      _SettingsTile(
                         icon: Icons.receipt_long_rounded,
                         iconColor: AppColors.primary,
                         title: 'Receipts History',
@@ -359,6 +383,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   child: Column(
                     children: [
+                      _SettingsTile(
+                        icon: Icons.history_rounded,
+                        iconColor: AppColors.primary,
+                        title: 'Finance Timeline',
+                        subtitle:
+                            'Scrollable income + expense history across months, quarters, years',
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const FinanceTimelineScreen(),
+                          ),
+                        ),
+                      ),
+                      _divider(),
                       _SettingsTile(
                         icon: Icons.delete_sweep_rounded,
                         iconColor: AppColors.expense,
@@ -586,27 +623,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     setState(() => _isSyncing = true);
-    final syncService = SyncService(
-      api: _api,
-      budgetProvider: budget,
-      receiptProvider: receiptProvider,
-    );
 
-    final (success, error) = await syncService.sync();
+    final (success, error) = await LiveSyncService.instance.syncNow();
     if (!mounted) return;
 
     setState(() => _isSyncing = false);
     final errorMsg = error != null && error.length > 80
         ? '${error.substring(0, 80)}...'
         : error ?? 'Unknown error';
+    final message =
+        success ? 'Sync complete' : 'Sync failed: $errorMsg';
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(success ? 'Sync complete' : 'Sync failed: $errorMsg'),
+        content: Text(message),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         backgroundColor: success ? AppColors.income : AppColors.expense,
         duration: const Duration(seconds: 3),
       ),
+    );
+
+    await NotificationService.instance.showSync(
+      title: success ? 'Budgy synced' : 'Budgy sync failed',
+      body: success
+          ? 'Cloud and device are in sync.'
+          : 'Sync failed: $errorMsg',
     );
   }
 
@@ -855,18 +897,203 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _showIncomeSmsConfig(BuildContext context) async {
+    final currentPattern = await SmsTransactionService.getIncomePattern();
+    final currentEnabled = await SmsTransactionService.getIncomeEnabled();
+
+    if (!context.mounted) return;
+
+    final patternCtrl = TextEditingController(text: currentPattern);
+    final testCtrl = TextEditingController();
+    bool enabled = currentEnabled;
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Theme.of(sheetContext).colorScheme.surface,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color:
+                            Theme.of(sheetContext).textTheme.bodySmall?.color,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Income / Salary SMS',
+                    style: Theme.of(sheetContext).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Detects salary deposits as income transactions. '
+                    'Built-in patterns cover IslamicBank salary transfers and generic "salary" SMS; '
+                    'add a custom regex below for BML or other banks.',
+                    style: TextStyle(
+                        color: Theme.of(sheetContext)
+                            .textTheme
+                            .bodySmall
+                            ?.color,
+                        fontSize: 12),
+                  ),
+                  const SizedBox(height: 18),
+                  SwitchListTile(
+                    value: enabled,
+                    activeThumbColor: AppColors.income,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      'Enable income detection',
+                      style: TextStyle(
+                          color:
+                              Theme.of(sheetContext).colorScheme.onSurface),
+                    ),
+                    subtitle: Text(
+                      'Required for salary SMS to be imported as income.',
+                      style: TextStyle(
+                          color: Theme.of(sheetContext)
+                              .textTheme
+                              .bodySmall
+                              ?.color,
+                          fontSize: 12),
+                    ),
+                    onChanged: (v) => setSheetState(() => enabled = v),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: patternCtrl,
+                    maxLines: 4,
+                    minLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Custom Income Regex (optional)',
+                      hintText: r'e.g. salary deposit of MVR ([\d,.]+)',
+                      helperText:
+                          'Matched before built-in patterns. Leave blank to use defaults only.',
+                      helperMaxLines: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: testCtrl,
+                    maxLines: 2,
+                    minLines: 1,
+                    decoration: const InputDecoration(
+                      labelText: 'Test SMS body',
+                      hintText:
+                          'Paste a sample SMS here to preview the parse result.',
+                    ),
+                    onChanged: (_) => setSheetState(() {}),
+                  ),
+                  const SizedBox(height: 10),
+                  _IncomeTestPreview(
+                    enabled: enabled,
+                    userPattern: patternCtrl.text,
+                    body: testCtrl.text,
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(sheetContext),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            final patternOk =
+                                await SmsTransactionService.setIncomePattern(
+                                    patternCtrl.text);
+                            if (!patternOk) {
+                              if (!sheetContext.mounted) return;
+                              ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                SnackBar(
+                                  content: const Text(
+                                      'Invalid regex. Settings not saved.'),
+                                  backgroundColor: Colors.red,
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              );
+                              return;
+                            }
+                            await SmsTransactionService.setIncomeEnabled(
+                                enabled);
+
+                            if (!sheetContext.mounted) return;
+                            Navigator.pop(sheetContext);
+
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content:
+                                    const Text('Income SMS settings saved'),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                backgroundColor: AppColors.income,
+                              ),
+                            );
+                          },
+                          child: const Text('Save'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _refreshSms(BuildContext context, BudgetProvider budget) async {
     final count = await LiveSmsListenerService.instance.refresh(budget);
 
     if (!mounted) return;
+    final message = count > 0
+        ? '$count new transactions imported'
+        : 'No new transactions found';
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(count > 0 ? '$count new transactions imported' : 'No new transactions found'),
+        content: Text(message),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         backgroundColor: count > 0 ? AppColors.income : null,
         duration: const Duration(seconds: 3),
       ),
+    );
+
+    await NotificationService.instance.showSync(
+      title: 'SMS refresh complete',
+      body: message,
     );
   }
 
@@ -989,4 +1216,141 @@ class _SettingsTile extends StatelessWidget {
           color: Theme.of(context).textTheme.bodySmall?.color, size: 20),
     );
   }
+}
+
+/// Live preview widget for the income SMS config sheet. Runs the full
+/// income-detection pipeline (user regex → defaults) on the pasted body and
+/// reports whether a salary transaction would be imported — so users can
+/// validate a BML or custom pattern without waiting for the next SMS to
+/// arrive.
+class _IncomeTestPreview extends StatefulWidget {
+  final bool enabled;
+  final String userPattern;
+  final String body;
+
+  const _IncomeTestPreview({
+    required this.enabled,
+    required this.userPattern,
+    required this.body,
+  });
+
+  @override
+  State<_IncomeTestPreview> createState() => _IncomeTestPreviewState();
+}
+
+class _IncomeTestPreviewState extends State<_IncomeTestPreview> {
+  @override
+  Widget build(BuildContext context) {
+    if (widget.body.trim().isEmpty) return const SizedBox.shrink();
+
+    if (!widget.enabled) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.textMuted.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
+          border:
+              Border.all(color: AppColors.textMuted.withValues(alpha: 0.4)),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.info_outline_rounded,
+                color: AppColors.textMuted, size: 18),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Income detection is disabled — enable it to preview matches.',
+                style: TextStyle(
+                    color: AppColors.textMuted, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return FutureBuilder(
+      future: _probe(widget.userPattern, widget.body),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: LinearProgressIndicator(minHeight: 2),
+          );
+        }
+        final result = snapshot.data!;
+        final color = result.matched ? AppColors.income : AppColors.expense;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withValues(alpha: 0.4)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                result.matched
+                    ? Icons.check_circle_rounded
+                    : Icons.cancel_rounded,
+                color: color,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  result.message,
+                  style: TextStyle(
+                      color: color, fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<_ProbeResult> _probe(String userPattern, String body) async {
+    // Persisting is the cheapest way to exercise the real pipeline — restore
+    // the prior value before returning so this is a pure probe.
+    final previous = await SmsTransactionService.getIncomePattern();
+    final trimmed = userPattern.trim();
+    final valid = await SmsTransactionService.setIncomePattern(trimmed);
+    if (!valid) {
+      await SmsTransactionService.setIncomePattern(previous);
+      return const _ProbeResult(
+          matched: false, message: 'Invalid regex — fix the pattern above.');
+    }
+    try {
+      final parsed =
+          await SmsTransactionService.parseBodyWithCurrentPattern(body);
+      if (parsed == null) {
+        return const _ProbeResult(
+            matched: false,
+            message: 'No match — SMS would be ignored by income detection.');
+      }
+      if (!parsed.isIncome) {
+        return _ProbeResult(
+          matched: false,
+          message:
+              'Matched as an expense pattern (not income). Amount ${parsed.amount} ${parsed.currency}.',
+        );
+      }
+      return _ProbeResult(
+        matched: true,
+        message:
+            'Income match: ${parsed.amount} ${parsed.currency} from "${parsed.merchant}".',
+      );
+    } finally {
+      await SmsTransactionService.setIncomePattern(previous);
+    }
+  }
+}
+
+class _ProbeResult {
+  final bool matched;
+  final String message;
+  const _ProbeResult({required this.matched, required this.message});
 }

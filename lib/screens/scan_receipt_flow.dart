@@ -101,29 +101,33 @@ class _ScanReceiptFlowState extends State<ScanReceiptFlow> {
 
       // Fire category suggestion concurrently (result delivered via callback)
       final budget = Provider.of<BudgetProvider>(context, listen: false);
-      String? suggestedCategoryId;
+      // User-defined vendor rules take priority over Gemini guesswork.
+      String? suggestedCategoryId =
+          budget.suggestCategoryByVendorRules(parsed.storeName);
       final categoryNames = budget.categories.map((c) => c.name).toList();
       final canonicalNames =
           parsed.items.map((i) => i.canonicalName).toList();
 
-      // Launch suggestion as background future, update state when done
-      ReceiptAiService.suggestCategory(
-        storeName: parsed.storeName,
-        canonicalNames: canonicalNames,
-        categoryNames: categoryNames,
-      ).then((suggested) {
-        if (!mounted || suggestedCategoryId != null) return;
-        if (suggested != null) {
-          final match = budget.categories
-              .where((c) => c.name == suggested)
-              .firstOrNull;
-          if (match != null) {
-            suggestedCategoryId = match.id;
-            // This setState would only matter if the review screen is reading
-            // it from a parent — handled via Navigator.pushReplacement below
+      // Only call Gemini if no vendor rule matched.
+      if (suggestedCategoryId == null) {
+        ReceiptAiService.suggestCategory(
+          storeName: parsed.storeName,
+          canonicalNames: canonicalNames,
+          categoryNames: categoryNames,
+        ).then((suggested) {
+          if (!mounted || suggestedCategoryId != null) return;
+          if (suggested != null) {
+            final match = budget.categories
+                .where((c) => c.name == suggested)
+                .firstOrNull;
+            if (match != null) {
+              suggestedCategoryId = match.id;
+              // This setState would only matter if the review screen is reading
+              // it from a parent — handled via Navigator.pushReplacement below
+            }
           }
-        }
-      });
+        });
+      }
 
       if (!mounted) return;
 

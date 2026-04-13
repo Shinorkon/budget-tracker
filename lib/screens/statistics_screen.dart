@@ -3,10 +3,45 @@ import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../theme/app_theme.dart';
 import '../models/budget_provider.dart';
+import '../models/budget_model.dart';
 import '../utils/formatters.dart';
 
-class StatisticsScreen extends StatelessWidget {
+class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
+
+  @override
+  State<StatisticsScreen> createState() => _StatisticsScreenState();
+}
+
+class _StatisticsScreenState extends State<StatisticsScreen> {
+  /// Null means "use the current month" — the legacy behavior of every
+  /// existing chart on this screen. When set, it drives the Top Vendors and
+  /// drill-down sections only; the built-in month charts are untouched so
+  /// the user can still glance at recent activity without juggling dates.
+  DateTimeRange? _range;
+
+  DateTime get _rangeStart =>
+      _range?.start ?? DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime get _rangeEnd => _range?.end ?? DateTime.now();
+
+  String get _rangeLabel {
+    if (_range == null) return 'This month';
+    final s = _range!.start;
+    final e = _range!.end;
+    return '${formatDateShort(s)} – ${formatDateShort(e)}';
+  }
+
+  Future<void> _pickRange() async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 1),
+      initialDateRange: _range ??
+          DateTimeRange(start: DateTime(now.year, now.month, 1), end: now),
+    );
+    if (picked != null) setState(() => _range = picked);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,9 +61,52 @@ class StatisticsScreen extends StatelessWidget {
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                child: Text(
-                  'Statistics',
-                  style: Theme.of(context).textTheme.headlineMedium,
+                child: Row(
+                  children: [
+                    Text(
+                      'Statistics',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const Spacer(),
+                    GestureDetector(
+                      onTap: _pickRange,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color:
+                                  AppColors.primary.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.date_range_rounded,
+                                color: AppColors.primary, size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              _rangeLabel,
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (_range != null) ...[
+                              const SizedBox(width: 6),
+                              GestureDetector(
+                                onTap: () => setState(() => _range = null),
+                                child: const Icon(Icons.close_rounded,
+                                    color: AppColors.primary, size: 14),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -380,6 +458,33 @@ class StatisticsScreen extends StatelessWidget {
               ),
             ],
 
+            // ─── Top vendors (date-range scoped) ──────────────
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 8),
+                child: Row(
+                  children: [
+                    Text(
+                      'Top Vendors',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '• $_rangeLabel',
+                      style: const TextStyle(
+                          color: AppColors.textMuted, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+              sliver: _buildTopVendors(budget),
+            ),
+
             // ─── Top spending categories ──────────────────────
             SliverToBoxAdapter(
               child: Padding(
@@ -426,7 +531,11 @@ class StatisticsScreen extends StatelessWidget {
                           final percentage =
                               total > 0 ? entry.value / total : 0.0;
 
-                          return Container(
+                          return GestureDetector(
+                            onTap: cat == null
+                                ? null
+                                : () => _showCategoryDrillDown(cat, budget),
+                            child: Container(
                             margin: const EdgeInsets.only(bottom: 10),
                             padding: const EdgeInsets.all(16),
                             decoration: AppDecorations.subtleCard,
@@ -500,10 +609,297 @@ class StatisticsScreen extends StatelessWidget {
                                 ),
                               ],
                             ),
+                            ),
                           );
                         },
                         childCount: budget.expensesByCategory.length,
                       ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopVendors(BudgetProvider budget) {
+    final vendors = budget.expensesByVendor(
+        start: _rangeStart, end: _rangeEnd);
+    if (vendors.isEmpty) {
+      return SliverToBoxAdapter(
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: AppDecorations.subtleCard,
+          child: Center(
+            child: Text(
+              'No vendor spending in this range',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: AppColors.textMuted),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final sorted = vendors.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final top = sorted.take(8).toList();
+    final total = sorted.fold(0.0, (s, e) => s + e.value);
+    final palette = AppColors.categoryColors;
+
+    return SliverToBoxAdapter(
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: AppDecorations.subtleCard,
+        child: Column(
+          children: [
+            SizedBox(
+              height: 160,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: PieChart(
+                      PieChartData(
+                        sectionsSpace: 3,
+                        centerSpaceRadius: 30,
+                        startDegreeOffset: -90,
+                        sections: List.generate(top.length, (i) {
+                          final v = top[i];
+                          final pct = (v.value / total * 100);
+                          return PieChartSectionData(
+                            value: v.value,
+                            color: palette[i % palette.length],
+                            title: '${pct.toStringAsFixed(0)}%',
+                            radius: 44,
+                            titleStyle: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: List.generate(top.length.clamp(0, 5), (i) {
+                        final v = top[i];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 10,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  color: palette[i % palette.length],
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  v.key,
+                                  style: const TextStyle(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 12),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: AppColors.border, height: 24),
+            ...top.map((v) {
+              final pct = total > 0 ? v.value / total : 0.0;
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: Text(
+                        v.key,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        formatCurrency(v.value, budget.currency),
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 48,
+                      child: Text(
+                        '${(pct * 100).toStringAsFixed(1)}%',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCategoryDrillDown(Category cat, BudgetProvider budget) {
+    final vendors = budget.vendorBreakdownForCategory(
+      cat.id,
+      start: _rangeStart,
+      end: _rangeEnd,
+    );
+    final sorted = vendors.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final total = sorted.fold(0.0, (s, e) => s + e.value);
+
+    return showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(ctx).size.height * 0.8,
+        ),
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.textMuted,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: cat.color.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(cat.icon, color: cat.color, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(cat.name,
+                            style:
+                                Theme.of(ctx).textTheme.headlineSmall),
+                        Text(
+                          '$_rangeLabel • ${formatCurrency(total, budget.currency)}',
+                          style: const TextStyle(
+                              color: AppColors.textMuted, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: sorted.isEmpty
+                  ? const Center(
+                      child: Text('No transactions in this range',
+                          style: TextStyle(color: AppColors.textMuted)),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      itemCount: sorted.length,
+                      itemBuilder: (_, i) {
+                        final v = sorted[i];
+                        final pct = total > 0 ? v.value / total : 0.0;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      v.key,
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  Text(
+                                    formatCurrency(v.value, budget.currency),
+                                    style: TextStyle(
+                                      color: cat.color,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: LinearProgressIndicator(
+                                  value: pct,
+                                  backgroundColor: AppColors.surfaceHighlight,
+                                  valueColor:
+                                      AlwaysStoppedAnimation(cat.color),
+                                  minHeight: 5,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text('${(pct * 100).toStringAsFixed(1)}%',
+                                  style: const TextStyle(
+                                      color: AppColors.textMuted,
+                                      fontSize: 11)),
+                            ],
+                          ),
+                        );
+                      },
                     ),
             ),
           ],

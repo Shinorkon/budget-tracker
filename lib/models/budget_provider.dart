@@ -10,15 +10,18 @@ const _uuid = Uuid();
 class BudgetProvider extends ChangeNotifier {
   List<Category> _categories = [];
   List<Transaction> _transactions = [];
+  List<VendorRule> _vendorRules = [];
   DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   String _currency = 'MVR';
   bool _isLoading = true;
   late Box<Category> _catBox;
   late Box<Transaction> _txBox;
+  late Box<VendorRule> _ruleBox;
 
   // Getters
   List<Category> get categories => List.unmodifiable(_categories);
   List<Transaction> get transactions => List.unmodifiable(_transactions);
+  List<VendorRule> get vendorRules => List.unmodifiable(_vendorRules);
   DateTime get selectedMonth => _selectedMonth;
   String get currency => _currency;
   bool get isLoading => _isLoading;
@@ -52,12 +55,18 @@ class BudgetProvider extends ChangeNotifier {
     if (!Hive.isAdapterRegistered(1)) {
       Hive.registerAdapter(TransactionAdapter());
     }
+    if (!Hive.isAdapterRegistered(3)) {
+      Hive.registerAdapter(VendorRuleAdapter());
+    }
 
     _catBox = await Hive.openBox<Category>('categories_v2');
     _txBox = await Hive.openBox<Transaction>('transactions_v2');
+    _ruleBox = await Hive.openBox<VendorRule>('vendor_rules_v1');
 
     _categories = _catBox.values.toList();
     _transactions = _txBox.values.toList();
+    _vendorRules = _ruleBox.values.toList()
+      ..sort((a, b) => a.priority.compareTo(b.priority));
 
     // Add default categories if none exist
     if (_categories.isEmpty) {
@@ -181,6 +190,65 @@ class BudgetProvider extends ChangeNotifier {
     }
   }
 
+  // ─── Ranged helpers for statistics screen ────────────────
+  /// Expense transactions whose [Transaction.date] falls within
+  /// [start] (inclusive) and [end] (inclusive). Both bounds are optional so
+  /// callers can request "everything before X", "everything after X", or
+  /// "all time" without special-casing.
+  List<Transaction> expensesInRange({DateTime? start, DateTime? end}) {
+    return _transactions.where((t) {
+      if (t.type != TransactionType.expense) return false;
+      if (start != null && t.date.isBefore(start)) return false;
+      if (end != null && t.date.isAfter(end)) return false;
+      return true;
+    }).toList();
+  }
+
+  /// Total expenses per store, filtered by optional date range. Stores with
+  /// empty names are grouped under "Uncategorized vendor" so they're still
+  /// visible in drill-downs.
+  Map<String, double> expensesByVendor({DateTime? start, DateTime? end}) {
+    final map = <String, double>{};
+    for (final t in expensesInRange(start: start, end: end)) {
+      final key = t.storeName.trim().isEmpty
+          ? 'Uncategorized vendor'
+          : t.storeName.trim();
+      map[key] = (map[key] ?? 0) + t.amount;
+    }
+    return map;
+  }
+
+  /// Expenses per category within a date range (used by the drill-down
+  /// modal for top-spending categories).
+  Map<String, double> expensesByCategoryInRange(
+      {DateTime? start, DateTime? end}) {
+    final map = <String, double>{};
+    for (final t in expensesInRange(start: start, end: end)) {
+      if (t.categoryId != null) {
+        map[t.categoryId!] = (map[t.categoryId!] ?? 0) + t.amount;
+      }
+    }
+    return map;
+  }
+
+  /// Vendor breakdown for a single category, scoped to a date range. Used by
+  /// the category drill-down to show "where did the Food money go?".
+  Map<String, double> vendorBreakdownForCategory(
+    String categoryId, {
+    DateTime? start,
+    DateTime? end,
+  }) {
+    final map = <String, double>{};
+    for (final t in expensesInRange(start: start, end: end)) {
+      if (t.categoryId != categoryId) continue;
+      final key = t.storeName.trim().isEmpty
+          ? 'Uncategorized vendor'
+          : t.storeName.trim();
+      map[key] = (map[key] ?? 0) + t.amount;
+    }
+    return map;
+  }
+
   // ─── All-time stats ──────────────────────────────────────
   double get totalAllTimeExpenses => _transactions
       .where((t) => t.type == TransactionType.expense)
@@ -301,15 +369,19 @@ class BudgetProvider extends ChangeNotifier {
   }
 
   // ─── CRUD: Transaction ─────────────────────────────────────
-  Future<void> addTransaction(Transaction transaction, {bool skipDuplicateCheck = false}) async {
+  /// Returns true if the transaction was inserted, false if it was skipped as
+  /// a duplicate. Callers that need accurate import counts must check this
+  /// return value rather than trusting a pre-filter candidate count.
+  Future<bool> addTransaction(Transaction transaction, {bool skipDuplicateCheck = false}) async {
     // Duplicate check and list insert must be synchronous (no await between)
     // to prevent interleaved calls from passing the same check.
     if (!skipDuplicateCheck && isDuplicateTransaction(transaction)) {
-      return;
+      return false;
     }
     _transactions.add(transaction);
     notifyListeners();
     await _txBox.add(transaction);
+    return true;
   }
 
   bool isDuplicateTransaction(Transaction incoming) {
@@ -412,12 +484,59 @@ class BudgetProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ─── CRUD: VendorRule ──────────────────────────────────────
+  /// Find the best-matching [VendorRule] for a merchant name. Rules are
+  /// evaluated in priority order (lowest first); the first match wins.
+  /// Returns null if no rule matches.
+  VendorRule? findVendorRule(String merchant) {
+    for (final r in _vendorRules) {
+      if (r.matches(merchant)) return r;
+    }
+    return null;
+  }
+
+  /// Shortcut: apply vendor rules to suggest a categoryId for [merchant].
+  /// Returns null if no rule matches, letting callers fall back to built-in
+  /// keyword matching or AI-based suggestion.
+  String? suggestCategoryByVendorRules(String merchant) =>
+      findVendorRule(merchant)?.categoryId;
+
+  Future<void> addVendorRule(VendorRule rule) async {
+    _vendorRules.add(rule);
+    _vendorRules.sort((a, b) => a.priority.compareTo(b.priority));
+    await _ruleBox.add(rule);
+    notifyListeners();
+  }
+
+  Future<void> updateVendorRule(String id, VendorRule updated) async {
+    final index = _vendorRules.indexWhere((r) => r.id == id);
+    if (index == -1) return;
+    final boxIndex = _ruleBox.values.toList().indexWhere((r) => r.id == id);
+    _vendorRules[index] = updated;
+    _vendorRules.sort((a, b) => a.priority.compareTo(b.priority));
+    if (boxIndex != -1) {
+      await _ruleBox.putAt(boxIndex, updated);
+    }
+    notifyListeners();
+  }
+
+  Future<void> deleteVendorRule(String id) async {
+    final boxIndex = _ruleBox.values.toList().indexWhere((r) => r.id == id);
+    _vendorRules.removeWhere((r) => r.id == id);
+    if (boxIndex != -1) {
+      await _ruleBox.deleteAt(boxIndex);
+    }
+    notifyListeners();
+  }
+
   // ─── Clear all data ────────────────────────────────────────
   Future<void> clearAllData() async {
     _categories.clear();
     _transactions.clear();
+    _vendorRules.clear();
     await _catBox.clear();
     await _txBox.clear();
+    await _ruleBox.clear();
     await _addDefaultCategories();
     notifyListeners();
   }

@@ -86,6 +86,16 @@ class SyncService {
             'updated_at': DateTime.now().toUtc().toIso8601String(),
           }).toList();
 
+      final vendorRules = _budgetProvider.vendorRules.map((v) => {
+            'id': v.id,
+            'pattern': v.pattern,
+            'use_regex': v.useRegex,
+            'category_id': v.categoryId,
+            'is_income': v.isIncome,
+            'priority': v.priority,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+          }).toList();
+
       // Paginated sync: loop until no more pages
       int page = 1;
       bool hasMore = true;
@@ -105,6 +115,7 @@ class SyncService {
             'categories': page == 1 ? categories : [],
             'transactions': page == 1 ? transactions : [],
             'receipts': page == 1 ? receipts : [],
+            'vendor_rules': page == 1 ? vendorRules : [],
             'page': page,
             'per_page': 500,
           },
@@ -221,6 +232,35 @@ class SyncService {
       } else {
         // Skip fuzzy duplicate check for server data — ID is authoritative
         await _budgetProvider.addTransaction(tx, skipDuplicateCheck: true);
+      }
+    }
+
+    final serverRules = data['vendor_rules'] as List? ?? [];
+    for (final sv in serverRules) {
+      final id = sv['id'] as String;
+      final deletedAt = sv['deleted_at'];
+
+      if (deletedAt != null) {
+        final exists = _budgetProvider.vendorRules.any((v) => v.id == id);
+        if (exists) {
+          await _budgetProvider.deleteVendorRule(id);
+        }
+        continue;
+      }
+
+      final rule = VendorRule(
+        id: id,
+        pattern: sv['pattern'] as String? ?? '',
+        useRegex: sv['use_regex'] as bool? ?? false,
+        categoryId: sv['category_id'] as String? ?? '',
+        isIncome: sv['is_income'] as bool? ?? false,
+        priority: (sv['priority'] as num?)?.toInt() ?? 100,
+      );
+      final existing = _budgetProvider.vendorRules.any((v) => v.id == id);
+      if (existing) {
+        await _budgetProvider.updateVendorRule(id, rule);
+      } else {
+        await _budgetProvider.addVendorRule(rule);
       }
     }
 

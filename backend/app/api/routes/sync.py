@@ -17,6 +17,7 @@ from app.models.user import User
 from app.models.category import Category
 from app.models.transaction import Transaction, TransactionType
 from app.models.receipt import Receipt
+from app.models.vendor_rule import VendorRule
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +67,24 @@ class ReceiptSync(BaseModel):
     deleted_at: Optional[datetime] = None
 
 
+class VendorRuleSync(BaseModel):
+    id: str
+    pattern: str
+    use_regex: bool = False
+    category_id: str
+    is_income: bool = False
+    priority: int = 100
+    version: int = 1
+    updated_at: datetime
+    deleted_at: Optional[datetime] = None
+
+
 class SyncRequest(BaseModel):
     last_synced_at: Optional[datetime] = None
     categories: list[CategorySync] = []
     transactions: list[TransactionSync] = []
     receipts: list[ReceiptSync] = []
+    vendor_rules: list[VendorRuleSync] = []
     page: int = 1
     per_page: int = 500
 
@@ -80,6 +94,7 @@ class SyncResponse(BaseModel):
     categories: list[CategorySync]
     transactions: list[TransactionSync]
     receipts: list[ReceiptSync]
+    vendor_rules: list[VendorRuleSync] = []
     has_more: bool = False
 
 
@@ -324,6 +339,55 @@ def sync(
                     detail="Failed to sync a receipt. Please try again."
                 )
 
+        # ── Push: vendor rules ───────────────────────────────────
+        for v in req.vendor_rules:
+            savepoint = db.begin_nested()
+            try:
+                existing = db.query(VendorRule).filter(
+                    VendorRule.id == v.id, VendorRule.user_id == user.id
+                ).first()
+                if existing:
+                    client_version = v.version or 1
+                    server_version = existing.version or 1
+                    if client_version > server_version or (
+                        client_version == server_version
+                        and v.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+                    ):
+                        existing.pattern = v.pattern
+                        existing.use_regex = v.use_regex
+                        existing.category_id = v.category_id
+                        existing.is_income = v.is_income
+                        existing.priority = v.priority
+                        existing.version = client_version
+                        existing.updated_at = v.updated_at
+                        existing.deleted_at = v.deleted_at
+                else:
+                    db.add(VendorRule(
+                        id=v.id,
+                        user_id=user.id,
+                        pattern=v.pattern,
+                        use_regex=v.use_regex,
+                        category_id=v.category_id,
+                        is_income=v.is_income,
+                        priority=v.priority,
+                        version=v.version,
+                        created_at=v.updated_at,
+                        updated_at=v.updated_at,
+                        deleted_at=v.deleted_at,
+                    ))
+                savepoint.commit()
+            except IntegrityError:
+                savepoint.rollback()
+                logger.warning(f"VendorRule sync skip for user {user.id}, id={v.id}: duplicate")
+                continue
+            except SQLAlchemyError as e:
+                savepoint.rollback()
+                logger.error(f"VendorRule sync error for user {user.id}: {str(e)}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to sync a vendor rule. Please try again."
+                )
+
         try:
             db.commit()
         except IntegrityError as e:
@@ -359,6 +423,11 @@ def sync(
             Receipt.updated_at > since,
         ).order_by(Receipt.updated_at).all()
 
+        server_rules = db.query(VendorRule).filter(
+            VendorRule.user_id == user.id,
+            VendorRule.updated_at > since,
+        ).order_by(VendorRule.updated_at).all()
+
         # Check if there are more transactions beyond this page
         has_more = len(server_txns) > req.per_page
         if has_more:
@@ -393,6 +462,14 @@ def sync(
                     items_json=r.items_json, version=r.version or 1,
                     updated_at=r.updated_at, deleted_at=r.deleted_at,
                 ) for r in server_rcpts
+            ],
+            vendor_rules=[
+                VendorRuleSync(
+                    id=v.id, pattern=v.pattern, use_regex=v.use_regex,
+                    category_id=v.category_id, is_income=v.is_income,
+                    priority=v.priority, version=v.version or 1,
+                    updated_at=v.updated_at, deleted_at=v.deleted_at,
+                ) for v in server_rules
             ],
         )
     except HTTPException:

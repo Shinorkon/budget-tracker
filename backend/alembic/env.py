@@ -10,7 +10,7 @@ from app.core.db import Base
 from app.core.config import settings
 
 # Import all models so Base.metadata knows about them
-from app.models import user, refresh_token, category, transaction, receipt  # noqa: F401
+from app.models import user, refresh_token, category, transaction, receipt, vendor_rule  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

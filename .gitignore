@@ -47,3 +47,12 @@ app.*.map.json
 # Release signing
 android/key.properties
 android/app/*.jks
+
+# Secrets & env
+.env
+.env.*
+GEMINI_KEY=*
+
+# Build artifacts
+*.apk
+*.aab

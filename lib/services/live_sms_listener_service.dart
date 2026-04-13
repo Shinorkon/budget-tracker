@@ -44,23 +44,10 @@ class LiveSmsListenerService {
       final enabled = await SmsTransactionService.getAutoListenEnabled();
       if (!enabled) return;
 
-      final allParsed = await SmsTransactionService.fetchBankTransactions();
-      final newTxns = SmsTransactionService.filterNew(allParsed, budget.transactions);
+      final inserted = await _importParsedSms(budget);
 
-      for (final parsed in newTxns) {
-        parsed.categoryId ??= SmsTransactionService.suggestCategory(
-          parsed.merchant,
-          budget.categories,
-        );
-        final tx = await SmsTransactionService.toTransaction(
-          parsed,
-          primaryCurrency: budget.currency,
-        );
-        await budget.addTransaction(tx);
-      }
-
-      if (newTxns.isNotEmpty) {
-        debugPrint('LiveSmsListenerService: caught up ${newTxns.length} missed SMS transactions');
+      if (inserted > 0) {
+        debugPrint('LiveSmsListenerService: caught up $inserted missed SMS transactions');
       }
 
       // Update last check timestamp
@@ -72,33 +59,45 @@ class LiveSmsListenerService {
   }
 
   /// Manual refresh: re-scan SMS inbox and import any missed transactions.
+  /// Returns the actual number of transactions inserted (not the number of
+  /// candidate SMS found). This is the source of truth for UI messages.
   Future<int> refresh(BudgetProvider budget) async {
     try {
-      final allParsed = await SmsTransactionService.fetchBankTransactions();
-      final newTxns = SmsTransactionService.filterNew(allParsed, budget.transactions);
+      final inserted = await _importParsedSms(budget);
 
-      for (final parsed in newTxns) {
-        parsed.categoryId ??= SmsTransactionService.suggestCategory(
-          parsed.merchant,
-          budget.categories,
-        );
-        final tx = await SmsTransactionService.toTransaction(
-          parsed,
-          primaryCurrency: budget.currency,
-        );
-        await budget.addTransaction(tx);
-      }
-
-      if (newTxns.isNotEmpty) {
+      if (inserted > 0) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setInt(_keyLastSmsCheck, DateTime.now().millisecondsSinceEpoch);
       }
 
-      return newTxns.length;
+      return inserted;
     } catch (e) {
       debugPrint('LiveSmsListenerService: refresh error: $e');
       return 0;
     }
+  }
+
+  /// Fetch SMS from inbox and insert only those that actually passed the
+  /// provider-level duplicate check. Returns the real insert count.
+  Future<int> _importParsedSms(BudgetProvider budget) async {
+    final allParsed = await SmsTransactionService.fetchBankTransactions();
+    final candidates = SmsTransactionService.filterNew(allParsed, budget.transactions);
+
+    int inserted = 0;
+    for (final parsed in candidates) {
+      parsed.categoryId ??= SmsTransactionService.suggestCategory(
+        parsed.merchant,
+        budget.categories,
+        vendorRules: budget.vendorRules,
+      );
+      final tx = await SmsTransactionService.toTransaction(
+        parsed,
+        primaryCurrency: budget.currency,
+      );
+      final didInsert = await budget.addTransaction(tx);
+      if (didInsert) inserted++;
+    }
+    return inserted;
   }
 
   Future<void> _handleIncomingSms(SmsMessage message, BudgetProvider budget) async {
@@ -120,6 +119,7 @@ class LiveSmsListenerService {
       parsed.categoryId ??= SmsTransactionService.suggestCategory(
         parsed.merchant,
         budget.categories,
+        vendorRules: budget.vendorRules,
       );
 
       final tx = await SmsTransactionService.toTransaction(

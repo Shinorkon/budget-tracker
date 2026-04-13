@@ -45,8 +45,11 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
       final categories = budget.categories;
 
       for (final tx in all) {
-        tx.categoryId ??=
-            SmsTransactionService.suggestCategory(tx.merchant, categories);
+        tx.categoryId ??= SmsTransactionService.suggestCategory(
+          tx.merchant,
+          categories,
+          vendorRules: budget.vendorRules,
+        );
       }
 
       final newOnly = SmsTransactionService.filterNew(all, budget.transactions);

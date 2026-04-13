@@ -43,6 +43,39 @@ A beautifully designed personal budget tracker built with **Flutter**. Track you
 - **6-month bar chart** — Side-by-side income/expense comparison with touch tooltips
 - **Spending by Category** — Interactive pie chart with color-coded legend
 - **Top spending categories** — Ranked list with category icons, amounts, percentages, and progress bars
+- **Date-range picker** — Scope Top Vendors and drill-downs to any custom range
+- **Top vendors** — Pie + ranked list of where your money actually goes, by store name
+- **Category drill-down** — Tap a category to see the per-vendor breakdown in a bottom sheet
+
+### 📅 Finance Timeline
+- **Vertical, reverse-chronological** view of every transaction, grouped by Month / Quarter / Year
+- **Type filter** — All / Income / Expense
+- **Per-group totals** — Income, expense, and net on each group header
+- **Salary deposits styled distinctly** with a ⚡ bolt icon
+
+### 🧾 Smart Receipt Scanning
+- **Gemini-powered OCR** — Scans receipts and auto-extracts store, amount, date, and line items
+- **Attach receipts to transactions** — Swipe any expense → Receipt → pick camera/gallery; scan runs in the background while you keep using the app
+- **Live scan badges** — Transaction cards show "scanning receipt…" with a spinner until done
+- **VendorRules-first categorization** — User rules win over AI guesses
+
+### 📨 SMS Import & Live Sync
+- **IslamicBank + BML auto-import** — Parses "Purchase confirmation" and "Salary Transfer" SMS into transactions
+- **Live SMS listener** — Catches new bank SMS in real time (opt-in, Android only)
+- **Salary / income patterns** — Configurable regex for salary-deposit SMS with live test preview
+- **Custom SMS pattern** — Define your own bank's SMS format
+
+### 🏷️ Vendor Rules (Smart Categorization)
+- **Pattern → category** — "FITNESS" always goes to Health, "AGORA" always to Food, etc.
+- **Contains match or full regex** — Per-rule toggle
+- **Priority & income-flip** — Higher-priority rules win; flag a rule as income to redirect matching SMS to the income bucket
+- **Rule training from transactions** — Fix a misclassification once, save as a rule, never see it wrong again
+
+### ☁️ Offline-First Sync
+- **Connectivity-driven auto-sync** — Returns online → pending changes push automatically
+- **Debounced mutation flush** — Rapid edits coalesce into a single sync (10s idle)
+- **Sync notifications** — Local notifications summarize what was uploaded/downloaded
+- **Round-trips categories, transactions, receipts, and vendor rules**
 
 ### 🎯 Branding
 - **Custom app icon** — Updated launcher icon for Android and iOS
@@ -95,6 +128,13 @@ A beautifully designed personal budget tracker built with **Flutter**. Track you
 | **flutter_slidable** | Swipe-to-delete actions |
 | **uuid** | Unique identifiers for records |
 | **intl** | Date and currency formatting |
+| **google_generative_ai** (Gemini 2.5 Flash) | Receipt OCR + fallback categorization |
+| **image_picker** + **flutter_image_compress** | Receipt capture & on-device compression |
+| **connectivity_plus** | Live online/offline detection for auto-sync |
+| **flutter_local_notifications** | Sync + receipt-scan notifications |
+| **another_telephony** | SMS ingestion (Android) |
+| **table_calendar** | Month-grid calendar view |
+| **FastAPI + SQLAlchemy + Alembic** (backend) | Cloud sync API |
 
 ---
 
@@ -138,21 +178,41 @@ For Play Store uploads, prefer `flutter build appbundle --release` and increment
 
 ```
 lib/
-├── main.dart                    # App entry point with Provider setup
+├── main.dart                          # App entry point, Provider setup, live-sync bootstrap
 ├── theme/
-│   └── app_theme.dart           # Design system: colors, theme, decorations
+│   └── app_theme.dart                 # Design system: colors, theme, decorations
 ├── models/
-│   ├── budget_model.dart        # Data models (Category, Transaction, Hive adapters)
-│   └── budget_provider.dart     # State management, CRUD, analytics
+│   ├── budget_model.dart              # Category, Transaction, Receipt, VendorRule + Hive adapters
+│   └── budget_provider.dart           # State, CRUD, analytics, range helpers
 ├── screens/
-│   ├── main_layout.dart         # Navigation shell + Add Transaction bottom sheet
-│   ├── home_screen.dart         # Dashboard with balance, charts, categories
-│   ├── transactions_screen.dart # Transaction history with search & filters
-│   ├── statistics_screen.dart   # Charts and spending analytics
-│   ├── categories_screen.dart   # Category CRUD with icon/color pickers
-│   └── settings_screen.dart     # App settings & preferences
+│   ├── main_layout.dart               # Navigation shell + Add Transaction bottom sheet
+│   ├── home_screen.dart               # Dashboard with balance, charts, categories
+│   ├── transactions_screen.dart       # History + swipe-to-delete + swipe-to-attach-receipt
+│   ├── statistics_screen.dart         # Charts, date-range, top vendors, drill-downs
+│   ├── finance_timeline_screen.dart   # Vertical income+expense timeline
+│   ├── calendar_screen.dart           # Month-grid calendar view
+│   ├── categories_screen.dart         # Category CRUD with icon/color pickers
+│   ├── vendor_rules_screen.dart       # Vendor → Category rule CRUD with regex toggle
+│   ├── scan_receipt_flow.dart         # Guided receipt scan flow (legacy entry)
+│   ├── sms_import_screen.dart         # Bulk SMS import & preview
+│   └── settings_screen.dart           # App settings, salary SMS config, sync controls
+├── services/
+│   ├── sync_service.dart              # One-shot pull/push against backend
+│   ├── live_sync_service.dart         # Connectivity listener + debounced auto-sync
+│   ├── sync_queue.dart                # Pending-mutation queue
+│   ├── sms_transaction_service.dart   # SMS parsing + VendorRule-aware categorization
+│   ├── live_sms_listener_service.dart # Real-time SMS ingestion
+│   ├── receipt_ai_service.dart        # Gemini receipt OCR
+│   ├── receipt_scan_queue.dart        # Detached-future scan queue for transaction-attached receipts
+│   └── notification_service.dart      # flutter_local_notifications wrapper
 └── utils/
-    └── formatters.dart          # Currency, date, and number formatters
+    └── formatters.dart                # Currency, date, and number formatters
+
+backend/
+├── app/
+│   ├── api/routes/sync.py             # /api/sync endpoint — transactions, categories, receipts, vendor rules
+│   └── models/                        # SQLAlchemy models
+└── alembic/versions/                  # Schema migrations (incl. 0007_add_vendor_rules)
 ```
 
 ---
@@ -167,13 +227,19 @@ lib/
 
 ## 🔮 Roadmap
 
+- [x] Cloud sync
+- [x] Biometric lock
+- [x] Budget / sync notifications
+- [x] Smart receipt scanning (Gemini)
+- [x] Live SMS ingestion + salary detection
+- [x] Vendor → Category rules (user-trainable)
+- [x] Finance timeline + date-range analytics
 - [ ] Data export (CSV/PDF)
 - [ ] Recurring transactions
-- [ ] Budget notifications
 - [ ] Multiple accounts/wallets
-- [ ] Biometric lock
-- [ ] Cloud sync
 - [ ] Themes (light mode, custom colors)
+- [ ] Receipt image upload to backend (metadata-only today)
+- [ ] Multi-device conflict resolution beyond last-write-wins
 
 ---
 

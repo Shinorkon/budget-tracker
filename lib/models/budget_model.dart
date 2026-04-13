@@ -188,6 +188,95 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
   }
 }
 
+// ─── VendorRule ───────────────────────────────────────────────
+/// User-configurable rule that maps a vendor/merchant name (as it appears in
+/// SMS or on a receipt) to a specific [Category]. Used to override the
+/// built-in keyword map and Gemini category suggestions.
+///
+/// When [useRegex] is false the [pattern] is treated as a case-insensitive
+/// substring match against the merchant name. When true it's compiled as a
+/// RegExp. Invalid regexes are ignored at match time.
+///
+/// Rules are evaluated in ascending [priority] order (lower runs first); the
+/// first match wins.
+class VendorRule extends HiveObject {
+  final String id;
+  final String pattern;
+  final bool useRegex;
+  final String categoryId;
+  final bool isIncome;
+  final int priority;
+
+  VendorRule({
+    required this.id,
+    required this.pattern,
+    this.useRegex = false,
+    required this.categoryId,
+    this.isIncome = false,
+    this.priority = 100,
+  });
+
+  /// Returns true if this rule's pattern matches the given merchant/store.
+  /// Swallows invalid regex so a bad user pattern cannot crash matching.
+  bool matches(String merchant) {
+    final target = merchant.trim();
+    final pat = pattern.trim();
+    if (target.isEmpty || pat.isEmpty) return false;
+    if (useRegex) {
+      try {
+        return RegExp(pat, caseSensitive: false).hasMatch(target);
+      } catch (_) {
+        return false;
+      }
+    }
+    return target.toUpperCase().contains(pat.toUpperCase());
+  }
+
+  VendorRule copyWith({
+    String? pattern,
+    bool? useRegex,
+    String? categoryId,
+    bool? isIncome,
+    int? priority,
+  }) {
+    return VendorRule(
+      id: id,
+      pattern: pattern ?? this.pattern,
+      useRegex: useRegex ?? this.useRegex,
+      categoryId: categoryId ?? this.categoryId,
+      isIncome: isIncome ?? this.isIncome,
+      priority: priority ?? this.priority,
+    );
+  }
+}
+
+class VendorRuleAdapter extends TypeAdapter<VendorRule> {
+  @override
+  final int typeId = 3;
+
+  @override
+  VendorRule read(BinaryReader reader) {
+    return VendorRule(
+      id: reader.readString(),
+      pattern: reader.readString(),
+      useRegex: reader.readBool(),
+      categoryId: reader.readString(),
+      isIncome: reader.readBool(),
+      priority: reader.readInt(),
+    );
+  }
+
+  @override
+  void write(BinaryWriter writer, VendorRule obj) {
+    writer.writeString(obj.id);
+    writer.writeString(obj.pattern);
+    writer.writeBool(obj.useRegex);
+    writer.writeString(obj.categoryId);
+    writer.writeBool(obj.isIncome);
+    writer.writeInt(obj.priority);
+  }
+}
+
 // ─── Available icons for category picker ──────────────────────
 const List<IconData> availableCategoryIcons = [
   Icons.home_rounded,
