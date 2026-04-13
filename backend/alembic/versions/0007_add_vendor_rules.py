@@ -49,11 +49,7 @@ def upgrade() -> None:
         ),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_index(
-        "ix_vendor_rules_user_id", "vendor_rules", ["user_id"]
-    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_vendor_rules_user_id", table_name="vendor_rules")
     op.drop_table("vendor_rules")
