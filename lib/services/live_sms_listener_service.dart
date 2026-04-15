@@ -59,9 +59,10 @@ class LiveSmsListenerService {
   }
 
   /// Manual refresh: re-scan SMS inbox and import any missed transactions.
-  /// Returns the actual number of transactions inserted (not the number of
-  /// candidate SMS found). This is the source of truth for UI messages.
-  Future<int> refresh(BudgetProvider budget) async {
+  /// Returns `(inserted, error)` — `error` is non-null when the pipeline
+  /// threw (permission denied, regex compile failure, etc.). Surface it in
+  /// the UI so silent failures don't hide bugs like a bad income regex.
+  Future<({int inserted, String? error})> refresh(BudgetProvider budget) async {
     try {
       final inserted = await _importParsedSms(budget);
 
@@ -70,10 +71,10 @@ class LiveSmsListenerService {
         await prefs.setInt(_keyLastSmsCheck, DateTime.now().millisecondsSinceEpoch);
       }
 
-      return inserted;
+      return (inserted: inserted, error: null);
     } catch (e) {
       debugPrint('LiveSmsListenerService: refresh error: $e');
-      return 0;
+      return (inserted: 0, error: e.toString());
     }
   }
 

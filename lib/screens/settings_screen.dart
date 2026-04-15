@@ -1074,20 +1074,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _refreshSms(BuildContext context, BudgetProvider budget) async {
-    final count = await LiveSmsListenerService.instance.refresh(budget);
+    final result = await LiveSmsListenerService.instance.refresh(budget);
 
     if (!mounted) return;
-    final message = count > 0
-        ? '$count new transactions imported'
-        : 'No new transactions found';
+    final String message;
+    final Color? color;
+    if (result.error != null) {
+      message = 'SMS refresh failed: ${result.error}';
+      color = AppColors.expense;
+    } else if (result.inserted > 0) {
+      message = '${result.inserted} new transactions imported';
+      color = AppColors.income;
+    } else {
+      message = 'No new transactions found';
+      color = null;
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        backgroundColor: count > 0 ? AppColors.income : null,
-        duration: const Duration(seconds: 3),
+        backgroundColor: color,
+        duration: Duration(seconds: result.error != null ? 6 : 3),
       ),
     );
 

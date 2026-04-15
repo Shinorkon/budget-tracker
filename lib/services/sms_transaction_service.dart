@@ -62,8 +62,10 @@ class SmsTransactionService {
 
   // Generic salary fallback: any message containing "salary" + an amount.
   // Groups: currency, amount. Date falls back to the parse moment.
+  // Compiled with caseSensitive: false — don't use (?i) inline flag, Dart
+  // RegExp rejects it with FormatException: invalid group.
   static const genericSalaryPattern =
-      r'(?i)\bsalary\b[\s\S]*?([A-Z]{3})\s*([\d,.]+)';
+      r'\bsalary\b[\s\S]*?([A-Z]{3})\s*([\d,.]+)';
 
   // Built-in vendor patterns keyed by sender name (case-insensitive)
   static const Map<String, String> vendorPatterns = {
@@ -165,7 +167,7 @@ class SmsTransactionService {
     final trimmed = pattern.trim();
     if (trimmed.isNotEmpty) {
       try {
-        RegExp(trimmed, dotAll: true);
+        RegExp(trimmed, dotAll: true, caseSensitive: false);
       } catch (_) {
         return false;
       }
@@ -204,7 +206,9 @@ class SmsTransactionService {
     final patterns = <String>{};
     if (userPattern.isNotEmpty) patterns.add(userPattern);
     patterns.addAll(defaultIncomePatterns);
-    return patterns.map((p) => RegExp(p, dotAll: true)).toList();
+    return patterns
+        .map((p) => RegExp(p, dotAll: true, caseSensitive: false))
+        .toList();
   }
 
   /// Request SMS permission and read bank transactions (expense + income).
