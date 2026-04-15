@@ -28,17 +28,19 @@ class MainActivity : FlutterActivity() {
         val cursor: Cursor? = contentResolver.query(
             uri,
             arrayOf("address", "body", "date"),
-            "address = ?",
-            arrayOf(address),
+            null,
+            null,
             "date DESC"
         )
 
         cursor?.use {
+            val addressIdx = it.getColumnIndex("address")
             val bodyIdx = it.getColumnIndex("body")
             val dateIdx = it.getColumnIndex("date")
             while (it.moveToNext()) {
                 messages.add(
                     mapOf(
+                        "address" to it.getString(addressIdx),
                         "body" to it.getString(bodyIdx),
                         "date" to it.getLong(dateIdx)
                     )

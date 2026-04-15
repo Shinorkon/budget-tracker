@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' hide Category;
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -216,11 +217,23 @@ class SmsTransactionService {
     final incomeEnabled = await getIncomeEnabled();
     final incomePatterns = incomeEnabled ? await _buildIncomePatterns() : const <RegExp>[];
 
+    final List<dynamic> rawMessages =
+        await _channel.invokeMethod('getSms', {'address': ''});
+
+    final distinctAddresses = <String>{};
     final allMessages = <dynamic>[];
-    for (final sender in senders) {
-      final List<dynamic> messages =
-          await _channel.invokeMethod('getSms', {'address': sender});
-      allMessages.addAll(messages);
+    for (final msg in rawMessages) {
+      final address = (msg['address'] as String? ?? '').trim();
+      if (address.isNotEmpty) distinctAddresses.add(address);
+      if (await isConfiguredSender(address)) allMessages.add(msg);
+    }
+
+    if (allMessages.isEmpty && rawMessages.isNotEmpty) {
+      final sample = distinctAddresses.take(5).join(', ');
+      debugPrint(
+        'SmsTransactionService: fetched ${rawMessages.length} SMS but none '
+        'matched configured senders ($senders). Sample addresses: [$sample]',
+      );
     }
 
     final parsed = <ParsedSmsTransaction>[];
