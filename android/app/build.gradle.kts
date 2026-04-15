@@ -32,7 +32,7 @@ android {
     defaultConfig {
         applicationId = "com.budgy.app"
         minSdk = flutter.minSdkVersion
-        targetSdk = 35
+        targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
