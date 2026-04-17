@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'theme/app_theme.dart';
+import 'models/account_provider.dart';
 import 'models/budget_provider.dart';
 import 'models/receipt_provider.dart';
 import 'models/theme_provider.dart';
@@ -21,6 +22,7 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => AccountProvider()),
         ChangeNotifierProvider(create: (_) => BudgetProvider()),
         ChangeNotifierProvider(create: (_) => ReceiptProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
@@ -93,12 +95,16 @@ class _AppEntryState extends State<_AppEntry> with WidgetsBindingObserver {
     final biometricEnabled = await BiometricPrefs.isEnabled();
     if (!mounted) return;
 
+    final accounts = context.read<AccountProvider>();
     final budget = context.read<BudgetProvider>();
     final receipts = context.read<ReceiptProvider>();
+
+    budget.attachAccountProvider(accounts);
 
     await LiveSyncService.instance.start(
       budget: budget,
       receipts: receipts,
+      accounts: accounts,
       api: _api,
     );
     ReceiptScanQueue.instance.attach(budget: budget, receipts: receipts);

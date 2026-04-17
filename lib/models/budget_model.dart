@@ -78,6 +78,8 @@ class Transaction extends HiveObject {
   final String imagePath;
   final String currency;
   final double? exchangeRate;
+  final String? accountId;
+  final String? transferGroupId;
 
   Transaction({
     required this.id,
@@ -90,10 +92,13 @@ class Transaction extends HiveObject {
     this.imagePath = '',
     this.currency = 'MVR',
     this.exchangeRate,
+    this.accountId,
+    this.transferGroupId,
   });
 
   String? get storeNameOrNull => storeName.isEmpty ? null : storeName;
   String? get imagePathOrNull => imagePath.isEmpty ? null : imagePath;
+  bool get isTransfer => transferGroupId != null;
 
   Transaction copyWith({
     Object? categoryId = _sentinel,
@@ -105,6 +110,8 @@ class Transaction extends HiveObject {
     String? imagePath,
     String? currency,
     Object? exchangeRate = _sentinel,
+    Object? accountId = _sentinel,
+    Object? transferGroupId = _sentinel,
   }) {
     return Transaction(
       id: id,
@@ -121,6 +128,12 @@ class Transaction extends HiveObject {
       exchangeRate: identical(exchangeRate, _sentinel)
           ? this.exchangeRate
           : exchangeRate as double?,
+      accountId: identical(accountId, _sentinel)
+          ? this.accountId
+          : accountId as String?,
+      transferGroupId: identical(transferGroupId, _sentinel)
+          ? this.transferGroupId
+          : transferGroupId as String?,
     );
   }
 }
@@ -157,6 +170,17 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
       exchangeRate = rateValue > 0 ? rateValue : null;
     } catch (_) {}
 
+    // v4 fields — bank account + transfer pair linkage
+    String? accountId;
+    String? transferGroupId;
+    try {
+      final rawAccountId = reader.readString();
+      accountId = rawAccountId.isEmpty ? null : rawAccountId;
+      final rawTransferGroupId = reader.readString();
+      transferGroupId =
+          rawTransferGroupId.isEmpty ? null : rawTransferGroupId;
+    } catch (_) {}
+
     return Transaction(
       id: id,
       categoryId: categoryId,
@@ -168,6 +192,8 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
       imagePath: imagePath,
       currency: currency,
       exchangeRate: exchangeRate,
+      accountId: accountId,
+      transferGroupId: transferGroupId,
     );
   }
 
@@ -185,6 +211,9 @@ class TransactionAdapter extends TypeAdapter<Transaction> {
     // v3 fields
     writer.writeString(obj.currency);
     writer.writeDouble(obj.exchangeRate ?? -1.0);
+    // v4 fields
+    writer.writeString(obj.accountId ?? '');
+    writer.writeString(obj.transferGroupId ?? '');
   }
 }
 

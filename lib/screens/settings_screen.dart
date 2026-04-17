@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../theme/app_theme.dart';
+import '../models/account_provider.dart';
 import '../models/budget_provider.dart';
 import '../models/receipt_provider.dart';
 import '../services/api_service.dart';
@@ -11,6 +12,7 @@ import '../models/theme_provider.dart';
 import '../services/sms_transaction_service.dart';
 import '../services/live_sms_listener_service.dart';
 import 'auth_screen.dart';
+import 'accounts_screen.dart';
 import 'categories_screen.dart';
 import 'receipts_history_screen.dart';
 import 'price_search_screen.dart';
@@ -105,6 +107,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           );
                         },
+                      ),
+                      _divider(),
+                      Consumer<AccountProvider>(
+                        builder: (context, accounts, _) => _SettingsTile(
+                          icon: Icons.account_balance_rounded,
+                          iconColor: AppColors.primary,
+                          title: 'Bank Accounts',
+                          subtitle:
+                              '${accounts.accounts.length} active account${accounts.accounts.length == 1 ? '' : 's'}',
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const AccountsScreen(),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                       _divider(),
                       Consumer<ThemeProvider>(
@@ -865,7 +884,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             await SmsTransactionService.setAutoListenEnabled(autoListen);
 
                             if (autoListen) {
-                              await LiveSmsListenerService.instance.start(budget);
+                              await LiveSmsListenerService.instance.start(
+                                budget,
+                                accounts: context.read<AccountProvider>(),
+                              );
                             }
 
                             if (!sheetContext.mounted) return;

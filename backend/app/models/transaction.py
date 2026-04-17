@@ -16,6 +16,8 @@ class Transaction(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     category_id = Column(String, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
+    account_id = Column(String, ForeignKey("accounts.id", ondelete="SET NULL"), nullable=True, index=True)
+    transfer_group_id = Column(String(64), nullable=True, index=True)
     amount = Column(Float, nullable=False)
     date = Column(DateTime(timezone=True), nullable=False)
     note = Column(String(1000), default="")

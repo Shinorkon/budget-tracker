@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../models/account_provider.dart';
 import '../models/budget_model.dart';
 import '../models/budget_provider.dart';
 import '../services/sms_transaction_service.dart';
@@ -98,6 +99,7 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
 
   Future<void> _importSelected() async {
     final budget = Provider.of<BudgetProvider>(context, listen: false);
+    final accounts = Provider.of<AccountProvider>(context, listen: false);
     final displayed = _getDisplayedTransactions();
     if (displayed == null) return;
 
@@ -106,9 +108,13 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
     int imported = 0;
     int skipped = 0;
     for (final parsed in selected) {
+      final bank = SmsTransactionService.bankFor(parsed.senderAddress);
+      final bankAcct = accounts.accountsForBank(bank).firstOrNull;
+      final accountId = bankAcct?.id ?? accounts.defaultAccount.id;
       final tx = await SmsTransactionService.toTransaction(
         parsed,
         primaryCurrency: budget.currency,
+        accountId: accountId,
       );
 
       final alreadyExists = budget.isDuplicateTransaction(tx);
@@ -118,6 +124,9 @@ class _SmsImportScreenState extends State<SmsImportScreen> {
       }
 
       await budget.addTransaction(tx);
+      if (tx.transferGroupId != null) {
+        budget.reconcileTransferPair(tx);
+      }
       imported++;
     }
 

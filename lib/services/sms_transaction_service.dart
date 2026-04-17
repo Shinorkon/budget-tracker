@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import '../models/account_model.dart';
 import '../models/budget_model.dart';
 import 'currency_conversion_service.dart';
 
@@ -13,6 +14,9 @@ class ParsedSmsTransaction {
   final DateTime date;
   final String referenceNo;
   final String smsBody;
+  /// Raw sender address of the SMS (e.g. "455", "MIB"). Used downstream to
+  /// pick the bank account the transaction should land on.
+  String senderAddress;
   /// True if this was parsed via an income/salary pattern rather than an
   /// expense pattern. Drives TransactionType on the resulting Transaction.
   final bool isIncome;
@@ -26,6 +30,7 @@ class ParsedSmsTransaction {
     required this.date,
     required this.referenceNo,
     required this.smsBody,
+    this.senderAddress = '',
     this.isIncome = false,
     this.selected = true,
     this.categoryId,
@@ -256,6 +261,7 @@ class SmsTransactionService {
       final dedupeKey = '$sender|${tx.referenceNo}|${tx.date.toIso8601String()}';
       if (seenRefs.contains(dedupeKey)) continue;
       seenRefs.add(dedupeKey);
+      tx.senderAddress = sender;
       parsed.add(tx);
     }
     return parsed;
@@ -272,6 +278,42 @@ class SmsTransactionService {
       return _parseIncomeMulti(body, incomePatterns);
     }
     return null;
+  }
+
+  /// Which bank this sender belongs to. Defaults to [BankType.other] when the
+  /// sender is unknown (e.g. a user-configured custom alias). Used to pick the
+  /// bank account a new SMS-imported transaction lands on.
+  static BankType bankFor(String senderAddress) {
+    final s = senderAddress.trim().toUpperCase();
+    if (s.isEmpty) return BankType.other;
+    if (s == '455' || s.contains('BML')) return BankType.bml;
+    if (s.contains('MIB') || s.contains('ISLAMIC')) return BankType.islamicBank;
+    return BankType.other;
+  }
+
+  /// Heuristic detector for a "favara" / inter-account transfer SMS. Matches
+  /// common Maldivian transfer phrasing on both BML and IslamicBank receipts.
+  static bool isTransferMessage(String body) {
+    final b = body.toUpperCase();
+    return b.contains('FAVARA') ||
+        b.contains('FUND TRANSFER') ||
+        b.contains('INTERNAL TRANSFER') ||
+        b.contains('ACCOUNT TRANSFER');
+  }
+
+  /// Deterministic id shared by both halves of a favara pair so that the two
+  /// bank SMS rows collide on the same `transferGroupId` when they arrive on
+  /// different devices / different imports. Keys on minute-precision date +
+  /// amount so small timestamp drift between banks doesn't split the pair.
+  static String transferGroupIdFor({
+    required DateTime date,
+    required double amount,
+  }) {
+    final minute = DateTime(
+      date.year, date.month, date.day, date.hour, date.minute,
+    ).millisecondsSinceEpoch;
+    final key = '$minute|${amount.toStringAsFixed(2)}';
+    return 'xfer-${key.hashCode.toRadixString(16)}';
   }
 
   /// Whether an incoming SMS sender matches configured sender rule.
@@ -482,9 +524,18 @@ class SmsTransactionService {
   }
 
   /// Convert a parsed SMS transaction to an app Transaction.
+  ///
+  /// [accountId] is the bank account this row should debit/credit. Callers
+  /// that know the sender pass the mapped account via [SmsTransactionService.bankFor];
+  /// null falls back to the user's legacy-default account downstream.
+  ///
+  /// When the raw SMS body looks like a favara/inter-account transfer the
+  /// returned Transaction carries a deterministic [Transaction.transferGroupId]
+  /// so the sibling SMS from the other bank can collide + reconcile on import.
   static Future<Transaction> toTransaction(
     ParsedSmsTransaction parsed, {
     required String primaryCurrency,
+    String? accountId,
   }) async {
     final sourceCurrency = parsed.currency.toUpperCase();
     final targetCurrency = primaryCurrency.toUpperCase();
@@ -505,6 +556,10 @@ class SmsTransactionService {
         ? '$sourceCurrency · Ref ${parsed.referenceNo}'
         : '$sourceCurrency ${parsed.amount.toStringAsFixed(2)} @ ${exchangeRate.toStringAsFixed(4)} · Ref ${parsed.referenceNo}';
 
+    final transferGroupId = isTransferMessage(parsed.smsBody)
+        ? transferGroupIdFor(date: parsed.date, amount: amount)
+        : null;
+
     return Transaction(
       id: const Uuid().v4(),
       amount: amount,
@@ -515,6 +570,8 @@ class SmsTransactionService {
       categoryId: parsed.categoryId,
       currency: sourceCurrency,
       exchangeRate: exchangeRate,
+      accountId: accountId,
+      transferGroupId: transferGroupId,
     );
   }
 

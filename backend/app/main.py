@@ -10,6 +10,8 @@ from app.api.routes.sync import router as sync_router
 from app.api.routes.categories import router as categories_router
 from app.api.routes.transactions import router as transactions_router
 from app.api.routes.receipts import router as receipts_router
+from app.api.routes.accounts import router as accounts_router
+from app.api.routes.savings_goals import router as savings_goals_router
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.limiter import limiter
@@ -46,6 +48,8 @@ app.include_router(auth_v1_router)
 app.include_router(categories_router)
 app.include_router(transactions_router)
 app.include_router(receipts_router)
+app.include_router(accounts_router)
+app.include_router(savings_goals_router)
 
 
 @app.get("/")

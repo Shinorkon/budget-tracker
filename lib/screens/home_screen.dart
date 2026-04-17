@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../theme/app_theme.dart';
 import '../models/budget_provider.dart';
 import '../models/budget_model.dart';
+import '../services/receipt_scan_queue.dart';
 import '../utils/formatters.dart';
 import 'main_layout.dart';
 import 'categories_screen.dart';
@@ -1205,16 +1207,38 @@ class _EditTransactionSheetState extends State<_EditTransactionSheet> {
     );
 
     budget.updateTransaction(widget.transaction.id, updated);
+
+    final attachedNew = _imagePath != null &&
+        _imagePath != widget.transaction.imagePathOrNull;
+
     Navigator.of(context).pop();
+
+    if (attachedNew) {
+      unawaited(_scanAttachedReceipt(_imagePath!, updated));
+    }
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Transaction updated'),
+        content: Text(attachedNew
+            ? 'Transaction updated — scanning receipt in background.'
+            : 'Transaction updated'),
         backgroundColor: AppColors.primary,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
+  }
+
+  Future<void> _scanAttachedReceipt(String path, Transaction txn) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      await ReceiptScanQueue.instance.enqueueFromBytes(
+        rawBytes: bytes,
+        transaction: txn,
+      );
+    } catch (e) {
+      debugPrint('home_screen: receipt scan kickoff failed: $e');
+    }
   }
 
   void _confirmDelete(BudgetProvider budget) {

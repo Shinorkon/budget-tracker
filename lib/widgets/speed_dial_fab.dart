@@ -4,11 +4,13 @@ import '../theme/app_theme.dart';
 class SpeedDialFab extends StatefulWidget {
   final VoidCallback onAddTransaction;
   final VoidCallback onScanReceipt;
+  final VoidCallback? onTransfer;
 
   const SpeedDialFab({
     super.key,
     required this.onAddTransaction,
     required this.onScanReceipt,
+    this.onTransfer,
   });
 
   @override
@@ -71,6 +73,20 @@ class _SpeedDialFabState extends State<SpeedDialFab>
                 behavior: HitTestBehavior.translucent,
                 child: const SizedBox.expand(),
               ),
+            ),
+
+          // Transfer option (only when a handler is provided)
+          if (widget.onTransfer != null)
+            _buildOption(
+              animation: _expandAnimation,
+              offsetFactor: 1.5,
+              icon: Icons.swap_horiz_rounded,
+              label: 'Transfer',
+              color: AppColors.primary,
+              onTap: () {
+                _close();
+                widget.onTransfer!.call();
+              },
             ),
 
           // Scan Receipt option

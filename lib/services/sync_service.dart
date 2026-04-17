@@ -1,10 +1,13 @@
 import 'dart:convert';
 import 'package:flutter/widgets.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import '../models/account_model.dart';
+import '../models/account_provider.dart';
 import '../models/budget_model.dart';
 import '../models/budget_provider.dart';
 import '../models/receipt_model.dart';
 import '../models/receipt_provider.dart';
+import '../models/savings_goal_model.dart';
 import 'api_service.dart';
 
 enum SyncState { idle, uploading, downloading, merging, done, error }
@@ -19,6 +22,7 @@ class SyncService {
   final ApiService _api;
   final BudgetProvider _budgetProvider;
   final ReceiptProvider _receiptProvider;
+  final AccountProvider _accountProvider;
   bool _isSyncing = false;
 
   /// Listen to this for real-time sync progress updates.
@@ -29,9 +33,11 @@ class SyncService {
     required ApiService api,
     required BudgetProvider budgetProvider,
     required ReceiptProvider receiptProvider,
+    required AccountProvider accountProvider,
   })  : _api = api,
         _budgetProvider = budgetProvider,
-        _receiptProvider = receiptProvider;
+        _receiptProvider = receiptProvider,
+        _accountProvider = accountProvider;
 
   Future<bool> get _isOnline async {
     final result = await Connectivity().checkConnectivity();
@@ -63,6 +69,8 @@ class SyncService {
       final transactions = _budgetProvider.transactions.map((t) => {
             'id': t.id,
             'category_id': t.categoryId,
+            'account_id': t.accountId,
+            'transfer_group_id': t.transferGroupId,
             'amount': t.amount,
             'date': t.date.toUtc().toIso8601String(),
             'note': t.note,
@@ -96,6 +104,32 @@ class SyncService {
             'updated_at': DateTime.now().toUtc().toIso8601String(),
           }).toList();
 
+      final accounts = _accountProvider.allAccountsIncludingArchived.map((a) => {
+            'id': a.id,
+            'name': a.name,
+            'bank': bankTypeName(a.bank),
+            'type': accountTypeName(a.type),
+            'opening_balance': a.openingBalance,
+            'include_in_budget': a.includeInBudget,
+            'archived': a.archived,
+            'version': a.version,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'deleted_at': a.deletedAt?.toUtc().toIso8601String(),
+          }).toList();
+
+      final savingsGoals = _accountProvider.savingsGoals.map((g) => {
+            'id': g.id,
+            'account_id': g.accountId.isEmpty ? null : g.accountId,
+            'name': g.name,
+            'target_amount': g.targetAmount,
+            'monthly_target': g.monthlyTarget,
+            'start_month': g.startMonth.toUtc().toIso8601String(),
+            'target_date': g.targetDate?.toUtc().toIso8601String(),
+            'version': g.version,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'deleted_at': g.deletedAt?.toUtc().toIso8601String(),
+          }).toList();
+
       // Paginated sync: loop until no more pages
       int page = 1;
       bool hasMore = true;
@@ -116,6 +150,8 @@ class SyncService {
             'transactions': page == 1 ? transactions : [],
             'receipts': page == 1 ? receipts : [],
             'vendor_rules': page == 1 ? vendorRules : [],
+            'accounts': page == 1 ? accounts : [],
+            'savings_goals': page == 1 ? savingsGoals : [],
             'page': page,
             'per_page': 500,
           },
@@ -166,6 +202,65 @@ class SyncService {
   }
 
   Future<void> _applyServerChanges(Map<String, dynamic> data) async {
+    // Accounts first so transactions from the same response can reference them.
+    final serverAccounts = data['accounts'] as List? ?? [];
+    for (final sa in serverAccounts) {
+      final id = sa['id'] as String;
+      final deletedAt = sa['deleted_at'];
+      if (deletedAt != null) {
+        if (_accountProvider.accountById(id) != null) {
+          await _accountProvider.softDeleteAccount(id);
+        }
+        continue;
+      }
+      final account = Account(
+        id: id,
+        name: sa['name'] as String,
+        bank: bankTypeFromName((sa['bank'] as String?) ?? 'other'),
+        type: accountTypeFromName((sa['type'] as String?) ?? 'current'),
+        openingBalance:
+            ((sa['opening_balance'] as num?) ?? 0).toDouble(),
+        includeInBudget: (sa['include_in_budget'] as bool?) ?? true,
+        archived: (sa['archived'] as bool?) ?? false,
+        version: (sa['version'] as num?)?.toInt() ?? 1,
+      );
+      if (_accountProvider.accountById(id) != null) {
+        await _accountProvider.updateAccount(id, account);
+      } else {
+        await _accountProvider.addAccount(account);
+      }
+    }
+
+    final serverGoals = data['savings_goals'] as List? ?? [];
+    for (final sg in serverGoals) {
+      final id = sg['id'] as String;
+      final deletedAt = sg['deleted_at'];
+      if (deletedAt != null) {
+        if (_accountProvider.savingsGoals.any((g) => g.id == id)) {
+          await _accountProvider.deleteGoal(id);
+        }
+        continue;
+      }
+      final goal = SavingsGoal(
+        id: id,
+        accountId: (sg['account_id'] as String?) ?? '',
+        name: sg['name'] as String,
+        targetAmount: ((sg['target_amount'] as num?) ?? 0).toDouble(),
+        monthlyTarget: ((sg['monthly_target'] as num?) ?? 0).toDouble(),
+        startMonth: DateTime.parse(sg['start_month'] as String),
+        targetDate: sg['target_date'] != null
+            ? DateTime.parse(sg['target_date'] as String)
+            : null,
+        version: (sg['version'] as num?)?.toInt() ?? 1,
+      );
+      final existing = _accountProvider.savingsGoals.any((g) => g.id == id);
+      if (existing) {
+        await _accountProvider.updateGoal(id, goal);
+      } else {
+        await _accountProvider.addGoal(goal);
+      }
+    }
+
     final serverCats = data['categories'] as List? ?? [];
     for (final sc in serverCats) {
       final id = sc['id'] as String;
@@ -214,6 +309,8 @@ class SyncService {
       final tx = Transaction(
         id: id,
         categoryId: st['category_id'] as String?,
+        accountId: st['account_id'] as String?,
+        transferGroupId: st['transfer_group_id'] as String?,
         amount: (st['amount'] as num).toDouble(),
         date: DateTime.parse(st['date'] as String),
         note: st['note'] as String? ?? '',

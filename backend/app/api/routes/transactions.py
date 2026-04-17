@@ -19,6 +19,8 @@ router = APIRouter(prefix="/api/v1/transactions", tags=["transactions"])
 class TransactionIn(BaseModel):
     id: str
     category_id: Optional[str] = None
+    account_id: Optional[str] = None
+    transfer_group_id: Optional[str] = None
     amount: float
     date: datetime
     note: str = ""
@@ -32,6 +34,8 @@ class TransactionIn(BaseModel):
 class TransactionOut(BaseModel):
     id: str
     category_id: Optional[str] = None
+    account_id: Optional[str] = None
+    transfer_group_id: Optional[str] = None
     amount: float
     date: datetime
     note: str
@@ -54,8 +58,9 @@ class PaginatedTransactions(BaseModel):
 
 def _to_out(t: Transaction) -> TransactionOut:
     return TransactionOut(
-        id=t.id, category_id=t.category_id, amount=t.amount,
-        date=t.date, note=t.note, type=t.type.value,
+        id=t.id, category_id=t.category_id,
+        account_id=t.account_id, transfer_group_id=t.transfer_group_id,
+        amount=t.amount, date=t.date, note=t.note, type=t.type.value,
         store_name=t.store_name, image_path=t.image_path,
         currency=t.currency, exchange_rate=t.exchange_rate,
         updated_at=t.updated_at, deleted_at=t.deleted_at,
@@ -121,6 +126,8 @@ def create_transaction(
     now = datetime.now(timezone.utc)
     tx = Transaction(
         id=req.id, user_id=user.id, category_id=req.category_id,
+        account_id=req.account_id or f"legacy-default-{user.id}",
+        transfer_group_id=req.transfer_group_id,
         amount=req.amount, date=req.date, note=req.note,
         type=TransactionType(req.type), store_name=req.store_name,
         image_path=req.image_path, currency=req.currency,
@@ -148,6 +155,9 @@ def update_transaction(
     if not tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
     tx.category_id = req.category_id
+    if req.account_id:
+        tx.account_id = req.account_id
+    tx.transfer_group_id = req.transfer_group_id
     tx.amount = req.amount
     tx.date = req.date
     tx.note = req.note

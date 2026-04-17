@@ -18,6 +18,8 @@ from app.models.category import Category
 from app.models.transaction import Transaction, TransactionType
 from app.models.receipt import Receipt
 from app.models.vendor_rule import VendorRule
+from app.models.account import Account
+from app.models.savings_goal import SavingsGoal
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,8 @@ class CategorySync(BaseModel):
 class TransactionSync(BaseModel):
     id: str
     category_id: Optional[str] = None
+    account_id: Optional[str] = None
+    transfer_group_id: Optional[str] = None
     amount: float
     date: datetime
     note: str = ""
@@ -48,6 +52,32 @@ class TransactionSync(BaseModel):
     image_path: str = ""
     currency: str = "MVR"
     exchange_rate: Optional[float] = None
+    version: int = 1
+    updated_at: datetime
+    deleted_at: Optional[datetime] = None
+
+
+class AccountSync(BaseModel):
+    id: str
+    name: str
+    bank: str = "other"
+    type: str = "current"
+    opening_balance: float = 0
+    include_in_budget: bool = True
+    archived: bool = False
+    version: int = 1
+    updated_at: datetime
+    deleted_at: Optional[datetime] = None
+
+
+class SavingsGoalSync(BaseModel):
+    id: str
+    account_id: Optional[str] = None
+    name: str
+    target_amount: float = 0
+    monthly_target: float = 0
+    start_month: datetime
+    target_date: Optional[datetime] = None
     version: int = 1
     updated_at: datetime
     deleted_at: Optional[datetime] = None
@@ -85,6 +115,8 @@ class SyncRequest(BaseModel):
     transactions: list[TransactionSync] = []
     receipts: list[ReceiptSync] = []
     vendor_rules: list[VendorRuleSync] = []
+    accounts: list[AccountSync] = []
+    savings_goals: list[SavingsGoalSync] = []
     page: int = 1
     per_page: int = 500
 
@@ -95,6 +127,8 @@ class SyncResponse(BaseModel):
     transactions: list[TransactionSync]
     receipts: list[ReceiptSync]
     vendor_rules: list[VendorRuleSync] = []
+    accounts: list[AccountSync] = []
+    savings_goals: list[SavingsGoalSync] = []
     has_more: bool = False
 
 
@@ -111,6 +145,57 @@ def sync(
     try:
         now = datetime.now(timezone.utc)
         since = req.last_synced_at or datetime.min.replace(tzinfo=timezone.utc)
+
+        # ── Push: accounts first so transactions can FK-reference them ────
+        for a in req.accounts:
+            savepoint = db.begin_nested()
+            try:
+                existing = db.query(Account).filter(
+                    Account.id == a.id, Account.user_id == user.id
+                ).first()
+                if existing:
+                    client_version = a.version or 1
+                    server_version = existing.version or 1
+                    if client_version > server_version or (
+                        client_version == server_version
+                        and a.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+                    ):
+                        existing.name = a.name
+                        existing.bank = a.bank
+                        existing.type = a.type
+                        existing.opening_balance = a.opening_balance
+                        existing.include_in_budget = a.include_in_budget
+                        existing.archived = a.archived
+                        existing.version = client_version
+                        existing.updated_at = a.updated_at
+                        existing.deleted_at = a.deleted_at
+                else:
+                    db.add(Account(
+                        id=a.id, user_id=user.id, name=a.name, bank=a.bank,
+                        type=a.type, opening_balance=a.opening_balance,
+                        include_in_budget=a.include_in_budget, archived=a.archived,
+                        version=a.version, created_at=a.updated_at,
+                        updated_at=a.updated_at, deleted_at=a.deleted_at,
+                    ))
+                savepoint.commit()
+            except IntegrityError:
+                savepoint.rollback()
+                logger.warning(f"Account sync skip for user {user.id}, id={a.id}: duplicate")
+                continue
+            except SQLAlchemyError as e:
+                savepoint.rollback()
+                logger.error(f"Account sync error for user {user.id}: {str(e)}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to sync an account. Please try again."
+                )
+
+        try:
+            db.flush()
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Account flush error for user {user.id}: {str(e)}")
+            raise HTTPException(status_code=400, detail="Failed to save accounts. Please try again.")
 
         # ── Push: upsert client changes ──────────────────────────
         for c in req.categories:
@@ -203,6 +288,18 @@ def sync(
                         detail="Transaction amount cannot be negative"
                     )
 
+                # Older clients don't send account_id. Fall back to the
+                # user's legacy default so the FK stays satisfied.
+                resolved_account_id = t.account_id
+                if resolved_account_id:
+                    account_exists = db.query(Account).filter(
+                        Account.id == resolved_account_id, Account.user_id == user.id
+                    ).first()
+                    if not account_exists:
+                        resolved_account_id = None
+                if not resolved_account_id:
+                    resolved_account_id = f"legacy-default-{user.id}"
+
                 existing = db.query(Transaction).filter(
                     Transaction.id == t.id, Transaction.user_id == user.id
                 ).first()
@@ -214,6 +311,8 @@ def sync(
                         and t.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc))
                     ):
                         existing.category_id = t.category_id
+                        existing.account_id = resolved_account_id
+                        existing.transfer_group_id = t.transfer_group_id
                         existing.amount = t.amount
                         existing.date = t.date
                         existing.note = t.note
@@ -230,6 +329,8 @@ def sync(
                         id=t.id,
                         user_id=user.id,
                         category_id=t.category_id,
+                        account_id=resolved_account_id,
+                        transfer_group_id=t.transfer_group_id,
                         amount=t.amount,
                         date=t.date,
                         note=t.note,
@@ -388,6 +489,59 @@ def sync(
                     detail="Failed to sync a vendor rule. Please try again."
                 )
 
+        # ── Push: savings goals ──────────────────────────────────
+        for g in req.savings_goals:
+            savepoint = db.begin_nested()
+            try:
+                # Validate account_id if present, else null it.
+                if g.account_id:
+                    acc_exists = db.query(Account).filter(
+                        Account.id == g.account_id, Account.user_id == user.id
+                    ).first()
+                    if not acc_exists:
+                        g.account_id = None
+
+                existing = db.query(SavingsGoal).filter(
+                    SavingsGoal.id == g.id, SavingsGoal.user_id == user.id
+                ).first()
+                if existing:
+                    client_version = g.version or 1
+                    server_version = existing.version or 1
+                    if client_version > server_version or (
+                        client_version == server_version
+                        and g.updated_at > (existing.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+                    ):
+                        existing.account_id = g.account_id
+                        existing.name = g.name
+                        existing.target_amount = g.target_amount
+                        existing.monthly_target = g.monthly_target
+                        existing.start_month = g.start_month
+                        existing.target_date = g.target_date
+                        existing.version = client_version
+                        existing.updated_at = g.updated_at
+                        existing.deleted_at = g.deleted_at
+                else:
+                    db.add(SavingsGoal(
+                        id=g.id, user_id=user.id, account_id=g.account_id,
+                        name=g.name, target_amount=g.target_amount,
+                        monthly_target=g.monthly_target,
+                        start_month=g.start_month, target_date=g.target_date,
+                        version=g.version, created_at=g.updated_at,
+                        updated_at=g.updated_at, deleted_at=g.deleted_at,
+                    ))
+                savepoint.commit()
+            except IntegrityError:
+                savepoint.rollback()
+                logger.warning(f"SavingsGoal sync skip for user {user.id}, id={g.id}: duplicate")
+                continue
+            except SQLAlchemyError as e:
+                savepoint.rollback()
+                logger.error(f"SavingsGoal sync error for user {user.id}: {str(e)}")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to sync a savings goal. Please try again."
+                )
+
         try:
             db.commit()
         except IntegrityError as e:
@@ -428,6 +582,16 @@ def sync(
             VendorRule.updated_at > since,
         ).order_by(VendorRule.updated_at).all()
 
+        server_accounts = db.query(Account).filter(
+            Account.user_id == user.id,
+            Account.updated_at > since,
+        ).order_by(Account.updated_at).all()
+
+        server_goals = db.query(SavingsGoal).filter(
+            SavingsGoal.user_id == user.id,
+            SavingsGoal.updated_at > since,
+        ).order_by(SavingsGoal.updated_at).all()
+
         # Check if there are more transactions beyond this page
         has_more = len(server_txns) > req.per_page
         if has_more:
@@ -446,11 +610,12 @@ def sync(
             ],
             transactions=[
                 TransactionSync(
-                    id=t.id, category_id=t.category_id, amount=t.amount,
-                    date=t.date, note=t.note, type=t.type.value,
-                    store_name=t.store_name, image_path=t.image_path,
-                    currency=t.currency, exchange_rate=t.exchange_rate,
-                    version=t.version or 1,
+                    id=t.id, category_id=t.category_id,
+                    account_id=t.account_id, transfer_group_id=t.transfer_group_id,
+                    amount=t.amount, date=t.date, note=t.note,
+                    type=t.type.value, store_name=t.store_name,
+                    image_path=t.image_path, currency=t.currency,
+                    exchange_rate=t.exchange_rate, version=t.version or 1,
                     updated_at=t.updated_at, deleted_at=t.deleted_at,
                 ) for t in server_txns
             ],
@@ -470,6 +635,25 @@ def sync(
                     priority=v.priority, version=v.version or 1,
                     updated_at=v.updated_at, deleted_at=v.deleted_at,
                 ) for v in server_rules
+            ],
+            accounts=[
+                AccountSync(
+                    id=a.id, name=a.name, bank=a.bank, type=a.type,
+                    opening_balance=a.opening_balance,
+                    include_in_budget=a.include_in_budget,
+                    archived=a.archived, version=a.version or 1,
+                    updated_at=a.updated_at, deleted_at=a.deleted_at,
+                ) for a in server_accounts
+            ],
+            savings_goals=[
+                SavingsGoalSync(
+                    id=g.id, account_id=g.account_id, name=g.name,
+                    target_amount=g.target_amount,
+                    monthly_target=g.monthly_target,
+                    start_month=g.start_month, target_date=g.target_date,
+                    version=g.version or 1,
+                    updated_at=g.updated_at, deleted_at=g.deleted_at,
+                ) for g in server_goals
             ],
         )
     except HTTPException:

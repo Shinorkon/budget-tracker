@@ -2,6 +2,8 @@ import 'package:another_telephony/telephony.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/account_model.dart';
+import '../models/account_provider.dart';
 import '../models/budget_provider.dart';
 import 'sms_transaction_service.dart';
 
@@ -14,8 +16,10 @@ class LiveSmsListenerService {
 
   final Telephony _telephony = Telephony.instance;
   bool _isListening = false;
+  AccountProvider? _accounts;
 
-  Future<void> start(BudgetProvider budget) async {
+  Future<void> start(BudgetProvider budget, {AccountProvider? accounts}) async {
+    _accounts = accounts ?? _accounts;
     if (_isListening) return;
 
     final granted = await _telephony.requestPhoneAndSmsPermissions;
@@ -36,6 +40,17 @@ class LiveSmsListenerService {
 
     _isListening = true;
     debugPrint('LiveSmsListenerService: started');
+  }
+
+  /// Pick the account a row parsed from [bank] should land on. Picks the
+  /// first non-archived account on the bank if the user has configured one;
+  /// else falls back to the legacy default.
+  String? _accountIdFor(BankType bank) {
+    final accounts = _accounts;
+    if (accounts == null) return null;
+    final match = accounts.accountsForBank(bank).firstOrNull;
+    if (match != null) return match.id;
+    return accounts.defaultAccount.id;
   }
 
   /// Import any SMS transactions received while the app was closed.
@@ -91,12 +106,19 @@ class LiveSmsListenerService {
         budget.categories,
         vendorRules: budget.vendorRules,
       );
+      final bank = SmsTransactionService.bankFor(parsed.senderAddress);
       final tx = await SmsTransactionService.toTransaction(
         parsed,
         primaryCurrency: budget.currency,
+        accountId: _accountIdFor(bank),
       );
       final didInsert = await budget.addTransaction(tx);
-      if (didInsert) inserted++;
+      if (didInsert) {
+        inserted++;
+        if (tx.transferGroupId != null) {
+          budget.reconcileTransferPair(tx);
+        }
+      }
     }
     return inserted;
   }
@@ -123,9 +145,12 @@ class LiveSmsListenerService {
         vendorRules: budget.vendorRules,
       );
 
+      parsed.senderAddress = address;
+      final bank = SmsTransactionService.bankFor(address);
       final tx = await SmsTransactionService.toTransaction(
         parsed,
         primaryCurrency: budget.currency,
+        accountId: _accountIdFor(bank),
       );
 
       if (budget.isDuplicateTransaction(tx)) {
@@ -134,6 +159,9 @@ class LiveSmsListenerService {
       }
 
       await budget.addTransaction(tx);
+      if (tx.transferGroupId != null) {
+        budget.reconcileTransferPair(tx);
+      }
       debugPrint('LiveSmsListenerService: transaction auto-added from incoming SMS');
     } catch (e) {
       debugPrint('LiveSmsListenerService error: $e');

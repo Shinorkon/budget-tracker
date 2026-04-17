@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
+import 'account_provider.dart';
 import 'budget_model.dart';
 import '../services/currency_util.dart';
 
@@ -17,6 +18,27 @@ class BudgetProvider extends ChangeNotifier {
   late Box<Category> _catBox;
   late Box<Transaction> _txBox;
   late Box<VendorRule> _ruleBox;
+
+  /// Injected by main.dart after both providers exist. Until set,
+  /// `_budgetScoped` is a no-op (everything counted) — which matches the
+  /// pre-accounts behavior on first launch before the resolver is wired.
+  AccountProvider? _accounts;
+
+  void attachAccountProvider(AccountProvider accounts) {
+    _accounts = accounts;
+  }
+
+  /// Drops transfer halves and savings-account txns so the resulting list
+  /// feeds monthly-budget and statistics math. Per-account and net-worth
+  /// views do not use this.
+  Iterable<Transaction> _budgetScoped(Iterable<Transaction> source) {
+    return source.where((t) {
+      if (t.transferGroupId != null) return false;
+      final accounts = _accounts;
+      if (accounts == null) return true;
+      return accounts.includeInBudget(t.accountId);
+    });
+  }
 
   // Getters
   List<Category> get categories => List.unmodifiable(_categories);
@@ -73,8 +95,24 @@ class BudgetProvider extends ChangeNotifier {
       await _addDefaultCategories();
     }
 
+    await _backfillOrphanAccountIds();
+
     _isLoading = false;
     notifyListeners();
+  }
+
+  /// One-shot migration: every transaction written before v4 has a null
+  /// `accountId`. Point those at the legacy-default account so balance,
+  /// net-worth, and budget math all have a stable anchor. Idempotent —
+  /// runs every startup but only touches rows that still need it.
+  Future<void> _backfillOrphanAccountIds() async {
+    for (int i = 0; i < _transactions.length; i++) {
+      final t = _transactions[i];
+      if (t.accountId != null) continue;
+      final fixed = t.copyWith(accountId: kLegacyDefaultAccountId);
+      _transactions[i] = fixed;
+      await _txBox.putAt(i, fixed);
+    }
   }
 
   Future<void> _addDefaultCategories() async {
@@ -149,11 +187,11 @@ class BudgetProvider extends ChangeNotifier {
       ..sort((a, b) => b.date.compareTo(a.date));
   }
 
-  List<Transaction> get expensesForMonth => transactionsForMonth
+  List<Transaction> get expensesForMonth => _budgetScoped(transactionsForMonth)
       .where((t) => t.type == TransactionType.expense)
       .toList();
 
-  List<Transaction> get incomesForMonth => transactionsForMonth
+  List<Transaction> get incomesForMonth => _budgetScoped(transactionsForMonth)
       .where((t) => t.type == TransactionType.income)
       .toList();
 
@@ -196,7 +234,7 @@ class BudgetProvider extends ChangeNotifier {
   /// callers can request "everything before X", "everything after X", or
   /// "all time" without special-casing.
   List<Transaction> expensesInRange({DateTime? start, DateTime? end}) {
-    return _transactions.where((t) {
+    return _budgetScoped(_transactions).where((t) {
       if (t.type != TransactionType.expense) return false;
       if (start != null && t.date.isBefore(start)) return false;
       if (end != null && t.date.isAfter(end)) return false;
@@ -250,11 +288,11 @@ class BudgetProvider extends ChangeNotifier {
   }
 
   // ─── All-time stats ──────────────────────────────────────
-  double get totalAllTimeExpenses => _transactions
+  double get totalAllTimeExpenses => _budgetScoped(_transactions)
       .where((t) => t.type == TransactionType.expense)
       .fold(0.0, (sum, t) => sum + t.amount);
 
-  double get totalAllTimeIncome => _transactions
+  double get totalAllTimeIncome => _budgetScoped(_transactions)
       .where((t) => t.type == TransactionType.income)
       .fold(0.0, (sum, t) => sum + t.amount);
 
@@ -266,7 +304,7 @@ class BudgetProvider extends ChangeNotifier {
     final result = <MapEntry<DateTime, double>>[];
     for (int i = 5; i >= 0; i--) {
       final month = DateTime(now.year, now.month - i);
-      final total = _transactions
+      final total = _budgetScoped(_transactions)
           .where((t) =>
               t.type == TransactionType.expense &&
               t.date.year == month.year &&
@@ -282,7 +320,7 @@ class BudgetProvider extends ChangeNotifier {
     final result = <MapEntry<DateTime, double>>[];
     for (int i = 5; i >= 0; i--) {
       final month = DateTime(now.year, now.month - i);
-      final total = _transactions
+      final total = _budgetScoped(_transactions)
           .where((t) =>
               t.type == TransactionType.income &&
               t.date.year == month.year &&
@@ -319,7 +357,7 @@ class BudgetProvider extends ChangeNotifier {
         DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0).day;
     final result = <MapEntry<int, double>>[];
     for (int d = 1; d <= daysInMonth; d++) {
-      final total = _transactions
+      final total = _budgetScoped(_transactions)
           .where((t) =>
               t.type == TransactionType.expense &&
               t.date.year == _selectedMonth.year &&
@@ -390,6 +428,15 @@ class BudgetProvider extends ChangeNotifier {
       return true;
     }
 
+    // Re-import of the same transfer half: same groupId + same side of the
+    // pair (type). The other side is a legitimate pair, not a duplicate.
+    if (incoming.transferGroupId != null) {
+      final sameHalf = _transactions.any((t) =>
+          t.transferGroupId == incoming.transferGroupId &&
+          t.type == incoming.type);
+      if (sameHalf) return true;
+    }
+
     final incomingRef = _extractReferenceNo(incoming.note);
 
     return _transactions.any((existing) {
@@ -417,10 +464,13 @@ class BudgetProvider extends ChangeNotifier {
   }) {
     final normalizedStore = _normalizeStore(storeName);
 
-    // Search only recent expenses, latest first.
+    // Search only recent expenses, latest first. Transfer halves are
+    // excluded — a receipt should never attach to an account-to-account
+    // move.
     final recentExpenses = _transactions
         .where((t) =>
             t.type == TransactionType.expense &&
+            t.transferGroupId == null &&
             date.difference(t.date).inHours.abs() <= 24)
         .toList()
       ..sort((a, b) => b.date.compareTo(a.date));
@@ -482,6 +532,71 @@ class BudgetProvider extends ChangeNotifier {
     _transactions.removeAt(index);
     await _txBox.deleteAt(index);
     notifyListeners();
+  }
+
+  // ─── Transfers ─────────────────────────────────────────────
+  /// Write two paired transactions representing a transfer between the
+  /// user's own accounts. Returns the shared `transferGroupId`. The pair
+  /// is: expense on `fromAccountId` + income on `toAccountId`, both with
+  /// the same amount, date, and group id.
+  Future<String> createTransfer({
+    required String fromAccountId,
+    required String toAccountId,
+    required double amount,
+    DateTime? date,
+    String note = '',
+    String? groupId,
+  }) async {
+    assert(fromAccountId != toAccountId,
+        'Transfer requires two distinct accounts');
+    final when = date ?? DateTime.now();
+    final gid = groupId ?? _uuid.v4();
+
+    final outgoing = Transaction(
+      id: _uuid.v4(),
+      amount: amount,
+      date: when,
+      note: note,
+      type: TransactionType.expense,
+      accountId: fromAccountId,
+      transferGroupId: gid,
+    );
+    final incoming = Transaction(
+      id: _uuid.v4(),
+      amount: amount,
+      date: when,
+      note: note,
+      type: TransactionType.income,
+      accountId: toAccountId,
+      transferGroupId: gid,
+    );
+
+    await addTransaction(outgoing, skipDuplicateCheck: true);
+    await addTransaction(incoming, skipDuplicateCheck: true);
+    return gid;
+  }
+
+  /// Returns the matching sibling half of a transfer pair (opposite type,
+  /// same `transferGroupId`, within the 15-minute window) so SMS import
+  /// can finalise the pair. Returns null if only one half is present.
+  Transaction? findTransferSibling(Transaction half) {
+    final gid = half.transferGroupId;
+    if (gid == null) return null;
+    for (final t in _transactions) {
+      if (t.id == half.id) continue;
+      if (t.transferGroupId != gid) continue;
+      if (t.type == half.type) continue;
+      if (t.date.difference(half.date).inMinutes.abs() > 15) continue;
+      return t;
+    }
+    return null;
+  }
+
+  /// If `half` has a sibling, both rows are already a legitimate transfer
+  /// pair — no write needed, the deterministic group id already links
+  /// them. Returns true iff the pair is complete after this call.
+  bool reconcileTransferPair(Transaction half) {
+    return findTransferSibling(half) != null;
   }
 
   // ─── CRUD: VendorRule ──────────────────────────────────────

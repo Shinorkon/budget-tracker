@@ -121,6 +121,20 @@ class ReceiptScanQueue {
       return;
     }
 
+    // A receipt must never attach to a transfer half — it represents real
+    // spending, not money moved between the user's own accounts.
+    if (transaction.transferGroupId != null) {
+      debugPrint(
+          'ReceiptScanQueue: refusing to link receipt to transfer half ${transaction.id}');
+      await NotificationService.instance.showSync(
+        title: 'Receipt not scanned',
+        body:
+            'Transfers between your accounts don\'t get receipts. Attach to an expense instead.',
+      );
+      _removeScan(scan);
+      return;
+    }
+
     try {
       final parsed = await ReceiptAiService.parseReceipt(imageBytes);
 

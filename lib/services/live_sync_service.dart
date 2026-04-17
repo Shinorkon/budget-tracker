@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/account_provider.dart';
 import '../models/budget_provider.dart';
 import '../models/receipt_provider.dart';
 import 'api_service.dart';
@@ -32,6 +33,7 @@ class LiveSyncService {
 
   BudgetProvider? _budget;
   ReceiptProvider? _receipts;
+  AccountProvider? _accounts;
   SyncService? _sync;
   ApiService? _api;
 
@@ -47,6 +49,7 @@ class LiveSyncService {
   Future<void> start({
     required BudgetProvider budget,
     required ReceiptProvider receipts,
+    required AccountProvider accounts,
     required ApiService api,
   }) async {
     if (_started) return;
@@ -54,17 +57,20 @@ class LiveSyncService {
 
     _budget = budget;
     _receipts = receipts;
+    _accounts = accounts;
     _api = api;
     _sync = SyncService(
       api: api,
       budgetProvider: budget,
       receiptProvider: receipts,
+      accountProvider: accounts,
     );
 
     _lastOnline = await SyncQueue.isOnline;
 
     budget.addListener(_onLocalMutation);
     receipts.addListener(_onLocalMutation);
+    accounts.addListener(_onLocalMutation);
 
     _connSub = Connectivity().onConnectivityChanged.listen(_onConnectivity);
   }
@@ -72,6 +78,7 @@ class LiveSyncService {
   Future<void> stop() async {
     _budget?.removeListener(_onLocalMutation);
     _receipts?.removeListener(_onLocalMutation);
+    _accounts?.removeListener(_onLocalMutation);
     await _connSub?.cancel();
     _connSub = null;
     _debounceTimer?.cancel();

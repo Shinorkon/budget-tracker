@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/account_provider.dart';
 import '../models/budget_provider.dart';
 import '../models/receipt_provider.dart';
 import '../theme/app_theme.dart';
@@ -263,6 +264,7 @@ class _AuthScreenState extends State<AuthScreen>
         api: _api,
         budgetProvider: context.read<BudgetProvider>(),
         receiptProvider: context.read<ReceiptProvider>(),
+        accountProvider: context.read<AccountProvider>(),
       ).sync();
 
       widget.onAuthenticated();

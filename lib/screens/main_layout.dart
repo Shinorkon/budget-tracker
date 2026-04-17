@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../theme/app_theme.dart';
+import '../models/account_provider.dart';
 import '../models/budget_provider.dart';
 import '../models/budget_model.dart';
 import '../utils/formatters.dart';
@@ -14,6 +15,7 @@ import 'transactions_screen.dart';
 import 'statistics_screen.dart';
 import 'settings_screen.dart';
 import 'scan_receipt_flow.dart';
+import 'transfer_sheet.dart';
 import '../services/live_sms_listener_service.dart';
 
 class MainLayout extends StatefulWidget {
@@ -41,7 +43,8 @@ class _MainLayoutState extends State<MainLayout> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final budget = Provider.of<BudgetProvider>(context, listen: false);
-      LiveSmsListenerService.instance.start(budget);
+      final accounts = Provider.of<AccountProvider>(context, listen: false);
+      LiveSmsListenerService.instance.start(budget, accounts: accounts);
     });
   }
 
@@ -64,6 +67,12 @@ class _MainLayoutState extends State<MainLayout> {
         onAddTransaction: () => _showAddTransactionSheet(context),
         onScanReceipt: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => const ScanReceiptFlow()),
+        ),
+        onTransfer: () => showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          showDragHandle: true,
+          builder: (_) => const TransferSheet(),
         ),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
